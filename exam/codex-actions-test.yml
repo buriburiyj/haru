@@ -1,0 +1,13 @@
+# Copy to buriburiyj/jun-files/.github/workflows/ (PRIVATE repo only). Needs secret CODEX_AUTH_JSON = contents of ~/.codex/auth.json
+name: codex-auth-test
+on: workflow_dispatch
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - run: npm i -g @openai/codex
+      - run: mkdir -p ~/.codex && printf '%s' "$CODEX_AUTH_JSON" > ~/.codex/auth.json && chmod 600 ~/.codex/auth.json
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+      - run: codex login status
+      - run: codex exec -m gpt-6-luna --skip-git-repo-check "Reply with the single word: ok" </dev/null
