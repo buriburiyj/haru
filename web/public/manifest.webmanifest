@@ -1,0 +1,12 @@
+{
+  "name": "Haru",
+  "short_name": "Haru",
+  "start_url": "/haru/",
+  "scope": "/haru/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    { "src": "/haru/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

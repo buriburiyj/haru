@@ -3,3 +3,6 @@ node_modules/
 dist/
 __pycache__/
 .venv/
+credentials.json
+queue/
+*.log
