@@ -12,7 +12,7 @@ Last updated: 2026-11-02 (Claude Code, deadline 2026-11-02)
 
 ## Blocked
 - Hostless: junbot worker DELETED (user approved, repo jun-server untouched). Estimate now $0.00. haru-server not created: Hostless wizard cannot see buriburiyj/haru even after adding it in GitHub app settings. Next: Hostless Project settings -> Git connections -> disconnect/reconnect GitHub (may need user passkey), then create app (root dir server/, start `uvicorn main:app --host 0.0.0.0 --port $PORT`), $0.00 only, then enter env vars.
-- Claude Code could not add its own permission rule or send further Aside messages on 2026-11-02 (auto-mode Self-Modification denial). Aside session id GYBNT6BZg9A08Sez may still be mid-task; check its screen.
+- Aside session GYBNT6BZg9A08Sez is mid-wizard creating haru-server in Hostless (GitHub reconnected, size Small/Standard at $0.00). Wait for its report; do not send it new instructions until it finishes.
 
 ## Remaining
 - Exam order stays gpt-6-luna -> gpt-5.6-terra -> gpt-5.6-luna (both 13/13)
