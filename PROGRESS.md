@@ -21,4 +21,4 @@ Last updated: 2026-11-02 (Claude Code, deadline 2026-11-02)
 - Stages 1-6 per SPEC.md section 12
 
 ## Next (one line)
-Reconnect GitHub in Hostless and create haru-server at $0.00, then run A3.
+Reconnect GitHub in Hostless and create haru-server at $0.00 (set SESSION_SECRET and SETUP_TOKEN), set VITE_API_URL for the web build, then run A3. Web login/chat UI and server tests are done but untested against a live server.
