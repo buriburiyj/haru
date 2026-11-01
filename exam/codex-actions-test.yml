@@ -10,4 +10,5 @@ jobs:
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
       - run: codex login status
-      - run: codex exec -m gpt-6-luna --skip-git-repo-check "Reply with the single word: ok" </dev/null
+      - run: |
+          codex exec -m gpt-6-luna --skip-git-repo-check "Reply with the single word ok" </dev/null
