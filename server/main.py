@@ -71,6 +71,11 @@ async def health():
     return {"status": "ok"}
 
 
+@app.get("/auth/me")
+async def me():
+    return {"ok": True}  # reached only with a valid session (see middleware)
+
+
 # ---- passkey (WebAuthn) ----
 def _creds() -> list:
     try:
@@ -100,6 +105,8 @@ async def reg_options(request: Request):
 @app.post("/auth/register/verify")
 async def reg_verify(request: Request):
     if _creds() and not _valid(request.cookies.get(COOKIE, "")):
+        return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    if os.environ.get("SETUP_TOKEN") and request.headers.get("x-setup-token") != os.environ["SETUP_TOKEN"]:
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     try:
         v = webauthn.verify_registration_response(
