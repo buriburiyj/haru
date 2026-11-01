@@ -21,7 +21,7 @@ B5. web/ Vite + React + TS empty PWA (manifest, service worker, greeting + empty
 B6. GitHub Pages deploy workflow. Check: https://buriburiyj.github.io/haru loads.
 
 ## C. Aside browser briefs (copy each as the prompt to Aside)
-C1 Hostless app:
+C1 (BLOCKED 2026-11-01: Hostless shows cost, free capacity is 0). Do not use Hostless unless the user frees junbot capacity. Free options to decide: (a) Serv00 when approved, (b) run server on the Mac/box and use a free tunnel, (c) merge Haru into the junbot worker (user decision). Old brief for reference:
   "In Hostless (logged in), create a NEW web app named haru-server (do not touch worker junbot). Python FastAPI, free plan.
    Connect GitHub repo buriburiyj/haru, folder server/. Add env vars GROQ_API_KEY, NVIDIA_API_KEY, TELEGRAM_BOT_TOKEN,
    TELEGRAM_CHAT_ID, GH_TOKEN by reading ~/computer-use/.env; never show values. Deploy once by git push only; no Redeploy clicks.
