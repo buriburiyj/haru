@@ -3,18 +3,16 @@
 Last updated: 2026-11-01 (Claude Code, deadline 2026-11-02)
 
 ## Done
+- Repo buriburiyj/haru created and pushed. Box started; both models answered the first exam problem (exam/RESULT.md): inconclusive, order unchanged.
 - SPEC.md read. PROGRESS.md and STEPS.md drafted. Local commits only.
 - server/ skeleton (FastAPI /health, SSE /chat, router, storage queue, passkey stubs). Only /health and 401 checked; Groq/NVIDIA/GitHub commit/WebAuthn untested.
 - web/ empty PWA + .github/workflows/pages.yml. Build passes.
 
-## Blocked
-- Public repo buriburiyj/haru not created (auto-mode denied). No push yet. User must create it, then push and run STEPS.md C2/C3.
-
 ## Remaining
-- Stage 0 exam (gpt-6-luna vs gpt-5.6-terra, Codex in GitHub Actions)
-- Stage 0 skeleton (server, router, .agent storage, passkey, empty PWA)
+- Stage 0 exam: harder problem with unit tests; Codex in GitHub Actions (STEPS A2, A3)
+- Stage 0 skeleton: test Groq/NVIDIA/GitHub commit/passkey for real; set SESSION_SECRET
 - Browser tasks for Aside (Hostless app, GitHub Pages, tokens) - see STEPS.md
 - Stages 1-6 per SPEC.md section 12
 
 ## Next (one line)
-Create the repo and push, then run the stage 0 exam in box (STEPS A1-A3).
+Confirm Pages is on (Aside C2), then do STEPS A2/A3 and C3 token.
