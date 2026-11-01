@@ -16,4 +16,4 @@ Last updated: 2026-11-01 (Claude Code, deadline 2026-11-02)
 - Stages 1-6 per SPEC.md section 12
 
 ## Next (one line)
-Do STEPS C1 (Hostless app), then A2 result, A3.
+Do STEPS C1 (Hostless app), then A3 (Codex in Actions). A2 done: both 13/13, order unchanged.
