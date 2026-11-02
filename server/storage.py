@@ -48,6 +48,28 @@ async def save_chat(chat_id: str, data: dict) -> bool:
         return False
 
 
+async def read_file(path: str):
+    """Return file text from the store repo, or None if missing. Raises on other errors."""
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.get(f"{API}/repos/{OWNER}/{REPO}/contents/{path}", headers=_headers())
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    return base64.b64decode(r.json()["content"]).decode()
+
+
+async def commit_file(path: str, content: str, msg: str, queue_name: str) -> bool:
+    """Commit one file; on failure queue locally under queue_name (newer content overwrites older)."""
+    try:
+        async with httpx.AsyncClient(timeout=20) as c:
+            await _put(c, path, content, msg)
+        return True
+    except Exception:
+        QUEUE.mkdir(parents=True, exist_ok=True)
+        (QUEUE / f"{queue_name}.json").write_text(json.dumps({"path": path, "content": content}))
+        return False
+
+
 async def flush_queue() -> int:
     if not QUEUE.exists():
         return 0

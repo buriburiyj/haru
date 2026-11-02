@@ -24,6 +24,7 @@ RP_NAME = "Haru"
 COOKIE = "haru_session"
 SESSION_TTL = 60 * 60 * 24 * 30
 CRED_FILE = Path(os.environ.get("CRED_FILE", Path(__file__).parent / "credentials.json"))
+CRED_REMOTE = os.environ.get("CRED_REMOTE_PATH", ".agent/credentials.json")  # public keys only
 PUBLIC = {"/health", "/auth/register/options", "/auth/register/verify", "/auth/login/options", "/auth/login/verify"}
 
 app = FastAPI()
@@ -63,6 +64,7 @@ async def require_session(request: Request, call_next):
 
 @app.on_event("startup")
 async def _start():
+    await _load_remote_creds()
     asyncio.create_task(storage.retry_loop())
 
 
@@ -77,11 +79,37 @@ async def me():
 
 
 # ---- passkey (WebAuthn) ----
+_cred_cache = None  # list of {id, pk, count}; public key data only
+
+
 def _creds() -> list:
+    global _cred_cache
+    if _cred_cache is None:
+        try:
+            _cred_cache = json.loads(CRED_FILE.read_text())
+        except Exception:
+            _cred_cache = []
+    return _cred_cache
+
+
+async def _load_remote_creds():
+    """Restore credentials from the private store repo (survives redeploys)."""
+    global _cred_cache
     try:
-        return json.loads(CRED_FILE.read_text())
+        text = await storage.read_file(CRED_REMOTE)
+        if text:
+            _cred_cache = json.loads(text)
+            CRED_FILE.write_text(text)
     except Exception:
-        return []
+        pass  # fall back to the local file
+
+
+async def _save_creds(creds: list):
+    global _cred_cache
+    _cred_cache = creds
+    text = json.dumps(creds)
+    CRED_FILE.write_text(text)
+    await storage.commit_file(CRED_REMOTE, text, "update passkey credentials", "credentials")
 
 
 def _set_session(resp: Response):
@@ -117,7 +145,7 @@ async def reg_verify(request: Request):
     creds = _creds()
     creds.append({"id": bytes_to_base64url(v.credential_id),
                   "pk": bytes_to_base64url(v.credential_public_key), "count": v.sign_count})
-    CRED_FILE.write_text(json.dumps(creds))
+    await _save_creds(creds)
     resp = JSONResponse({"ok": True})
     _set_session(resp)
     return resp
@@ -149,7 +177,7 @@ async def login_verify(request: Request):
     for c in creds:
         if c["id"] == cred["id"]:
             c["count"] = v.new_sign_count
-    CRED_FILE.write_text(json.dumps(creds))
+    await _save_creds(creds)
     resp = JSONResponse({"ok": True})
     _set_session(resp)
     return resp

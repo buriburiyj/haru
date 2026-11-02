@@ -57,6 +57,33 @@ class AuthTest(unittest.TestCase):
         self.assertEqual(r.status_code, 401)
 
 
+class CredStoreTest(unittest.TestCase):
+    def test_save_commits_and_load_restores(self):
+        import asyncio
+        store = {}
+
+        async def fake_commit(path, content, msg, queue_name):
+            store[path] = content
+            return True
+
+        async def fake_read(path):
+            return store.get(path)
+
+        orig = (main.storage.commit_file, main.storage.read_file, main._cred_cache)
+        main.storage.commit_file, main.storage.read_file = fake_commit, fake_read
+        try:
+            creds = [{"id": "a", "pk": "b", "count": 1}]
+            asyncio.run(main._save_creds(creds))
+            self.assertEqual(list(store), [main.CRED_REMOTE])
+            self.assertNotIn("SESSION_SECRET", store[main.CRED_REMOTE])
+            main._cred_cache = None
+            Path(os.environ["CRED_FILE"]).unlink()  # simulate a wiped disk
+            asyncio.run(main._load_remote_creds())
+            self.assertEqual(main._creds(), creds)
+        finally:
+            main.storage.commit_file, main.storage.read_file, main._cred_cache = orig
+
+
 class ChatTest(unittest.TestCase):
     def test_chat_streams_and_saves(self):
         saved = {}
