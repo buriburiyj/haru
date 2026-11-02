@@ -32,6 +32,24 @@ class AuthTest(unittest.TestCase):
         self.assertEqual(TestClient(main.app).get("/auth/me").status_code, 401)
         self.assertEqual(authed_client().get("/auth/me").json(), {"ok": True})
 
+    def test_cors_on_401_and_setup_token_preflight(self):
+        o = "https://buriburiyj.github.io"
+        c = TestClient(main.app)
+        r = c.get("/auth/me", headers={"Origin": o})
+        self.assertEqual(r.status_code, 401)
+        self.assertEqual(r.headers.get("access-control-allow-origin"), o)
+        p = c.options("/auth/register/options", headers={
+            "Origin": o, "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,x-setup-token"})
+        self.assertEqual(p.status_code, 200)
+
+    def test_session_cookie_attributes(self):
+        r = main.JSONResponse({})
+        main._set_session(r)
+        c = r.headers["set-cookie"].lower()
+        for part in ("samesite=none", "secure", "httponly"):
+            self.assertIn(part, c)
+
     def test_bad_and_expired_tokens_rejected(self):
         self.assertFalse(main._valid("garbage"))
         self.assertFalse(main._valid(main._sign(int(time.time()) - 1)))

@@ -28,10 +28,6 @@ CRED_REMOTE = os.environ.get("CRED_REMOTE_PATH", ".agent/credentials.json")  # p
 PUBLIC = {"/health", "/auth/register/options", "/auth/register/verify", "/auth/login/options", "/auth/login/verify"}
 
 app = FastAPI()
-app.add_middleware(
-    CORSMiddleware, allow_origins=[ORIGIN], allow_credentials=True,
-    allow_methods=["GET", "POST"], allow_headers=["Content-Type"],
-)
 _challenges: dict = {}  # purpose -> challenge bytes (single user)
 
 
@@ -60,6 +56,13 @@ async def require_session(request: Request, call_next):
     if not _valid(request.cookies.get(COOKIE, "")):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)
+
+
+# Added after require_session so CORS wraps it: 401 responses still carry CORS headers.
+app.add_middleware(
+    CORSMiddleware, allow_origins=[ORIGIN], allow_credentials=True,
+    allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Setup-Token"],
+)
 
 
 @app.on_event("startup")
