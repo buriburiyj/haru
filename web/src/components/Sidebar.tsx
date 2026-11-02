@@ -31,7 +31,7 @@ export default function Sidebar({ recent, onNew, userName, onLogout, open, onClo
       />
       <aside
         className={
-          "fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col gap-3 border-r border-line bg-surface p-3 transition-transform md:static md:translate-x-0 " +
+          "fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col gap-3 border-r border-line bg-surface/80 p-3 backdrop-blur-md transition-transform md:static md:translate-x-0 " +
           (open ? "translate-x-0" : "-translate-x-full")
         }
       >

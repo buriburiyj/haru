@@ -1,28 +1,33 @@
-/* 임시: bg/surface/fg/muted/border 값은 임시 베이지/다크 톤입니다. reference.html 확정 시 이 파일만 수정하세요.
-   확정값: --haru-accent (#DA7756), 글꼴 Pretendard. 컴포넌트는 색을 직접 쓰지 말고 var(--haru-*) 또는 Tailwind 토큰만 쓰세요. */
+/* Haru design tokens (confirmed from web/design/reference.html).
+   Components must never use raw colors: use var(--haru-*) or the Tailwind tokens from index.css. */
 :root {
   color-scheme: light dark;
   --haru-accent: #da7756;
+  --haru-accent-hover: #c56243;
+  --haru-accent-strong: #9e4931;
   --haru-accent-fg: #ffffff;
-  --haru-bg: #faf9f5;
-  --haru-surface: #f0eee6;
-  --haru-surface-2: #e8e5da;
-  --haru-fg: #29261b;
-  --haru-muted: #73726c;
-  --haru-border: #dedbd0;
-  --haru-user-bubble: #ece9de;
+  --haru-bg: #faf8f5;
+  --haru-surface: #f4efe6;
+  --haru-border: #e8dec9;
+  --haru-muted: #c2a782;
+  --haru-fg: #2c2523;
+  --haru-fg-2: #4a3e39;
+  --haru-surface-2: color-mix(in srgb, var(--haru-surface) 55%, var(--haru-border));
+  --haru-user-bubble: var(--haru-surface);
   --haru-danger: #b3402a;
+  --haru-scrollbar: rgba(168, 150, 137, 0.3);
+  --haru-scrollbar-hover: rgba(168, 150, 137, 0.5);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --haru-bg: #262624;
-    --haru-surface: #1f1e1d;
-    --haru-surface-2: #30302e;
-    --haru-fg: #f0eee6;
-    --haru-muted: #a3a29a;
-    --haru-border: #3d3d3a;
-    --haru-user-bubble: #141413;
+    --haru-bg: #1c1917;
+    --haru-surface: #292524;
+    --haru-border: #44403c;
+    --haru-muted: #a89689;
+    --haru-fg: #f4efe6;
+    --haru-fg-2: #d8cfc2;
+    --haru-user-bubble: var(--haru-surface);
     --haru-danger: #e07a64;
   }
 }
@@ -31,12 +36,22 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --haru-bg: #262624;
-  --haru-surface: #1f1e1d;
-  --haru-surface-2: #30302e;
-  --haru-fg: #f0eee6;
-  --haru-muted: #a3a29a;
-  --haru-border: #3d3d3a;
-  --haru-user-bubble: #141413;
+  --haru-bg: #1c1917;
+  --haru-surface: #292524;
+  --haru-border: #44403c;
+  --haru-muted: #a89689;
+  --haru-fg: #f4efe6;
+  --haru-fg-2: #d8cfc2;
+  --haru-user-bubble: var(--haru-surface);
   --haru-danger: #e07a64;
 }
+
+/* thin scrollbar (6px) */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--haru-scrollbar) transparent;
+}
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-thumb { background: var(--haru-scrollbar); border-radius: 9999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--haru-scrollbar-hover); }
+::-webkit-scrollbar-track { background: transparent; }

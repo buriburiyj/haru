@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="ko" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Haru - 당신의 일상 AI 비서</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        haru: {
+                            50: '#FAF8F5',
+                            100: '#F4EFE6',
+                            200: '#E8DEC9',
+                            300: '#D5C3A5',
+                            400: '#C2A782',
+                            500: '#DA7756', // Claude inspired terracotta accent
+                            600: '#C56243',
+                            700: '#9E4931',
+                            800: '#4A3E39',
+                            900: '#2C2523',
+                            darkbg: '#1C1917',
+                            darkcard: '#292524',
+                            darkborder: '#44403C'
+                        }
+                    },
+                    fontFamily: {
+                        sans: ['Pretendard', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Custom scrollbar for smooth Anthropic/Claude-like aesthetic */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(168, 150, 137, 0.3);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(168, 150, 137, 0.5);
+        }
+        .chat-container {
+            mask-image: linear-gradient(to bottom, transparent, black 12px, black calc(100% - 12px), transparent);
+        }
+    </style>
+</head>
+<body class="h-full bg-haru-50 dark:bg-haru-darkbg text-haru-900 dark:text-haru-100 font-sans transition-colors duration-300 flex overflow-hidden">
+
+    <!-- Mobile Overlay -->
+    <div id="sidebar-overlay" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-30 hidden md:hidden" onclick="toggleSidebar()"></div>
+
+    <!-- Sidebar / Drawer Navigation -->
+    <aside id="sidebar" class="fixed md:static inset-y-0 left-0 z-40 w-72 bg-haru-100/70 dark:bg-haru-darkcard/90 border-r border-haru-200/60 dark:border-haru-darkborder backdrop-blur-md flex flex-col justify-between transform -translate-x-full md:translate-x-0 transition-transform duration-300 ease-in-out">
+        <div>
+            <!-- Header Brand inside Sidebar -->
+            <div class="p-4 flex items-center justify-between border-b border-haru-200/40 dark:border-haru-darkborder/50">
+                <button onclick="createNewChat()" class="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-haru-50 dark:bg-haru-darkbg hover:bg-white dark:hover:bg-stone-800 text-haru-800 dark:text-haru-100 border border-haru-200 dark:border-haru-darkborder rounded-xl shadow-sm transition-all text-sm font-medium">
+                    <i class="fa-solid fa-plus text-haru-500"></i>
+                    <span>새로운 대화 시작</span>
+                </button>
+            </div>
+
+            <!-- Navigation Links / Quick Categories -->
+            <div class="p-3 space-y-1">
+                <div class="px-3 py-1.5 text-xs font-semibold text-haru-400 dark:text-stone-400 uppercase tracking-wider">주요 기능</div>
+                <a href="#" onclick="triggerQuickAction('오늘의 일정 및 업무 요약해줘')" class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-haru-800 dark:text-haru-200 hover:bg-haru-200/50 dark:hover:bg-stone-800 transition-colors">
+                    <i class="fa-regular fa-calendar-check text-haru-500 w-4"></i>
+                    <span>오늘의 브리핑</span>
+                </a>
+                <a href="#" onclick="triggerQuickAction('답장 및 다정한 이메일 작성 도와줘')" class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-haru-800 dark:text-haru-200 hover:bg-haru-200/50 dark:hover:bg-stone-800 transition-colors">
+                    <i class="fa-regular fa-pen-to-square text-haru-500 w-4"></i>
+                    <span>글쓰기 & 초안 작곡</span>
+                </a>
+                <a href="#" onclick="triggerQuickAction('주간 목표 달성을 위한 습관 루틴 짜줘')" class="flex items-center gap-3 px-3 py-2 text-sm rounded-lg text-haru-800 dark:text-haru-200 hover:bg-haru-200/50 dark:hover:bg-stone-800 transition-colors">
+                    <i class="fa-solid fa-wand-magic-sparkles text-haru-500 w-4"></i>
+                    <span>아이디어 & 루틴</span>
+                </a>
+            </div>
+
+            <!-- Recent History -->
+            <div class="p-3 space-y-1 mt-2">
+                <div class="px-3 py-1.5 text-xs font-semibold text-haru-400 dark:text-stone-400 uppercase tracking-wider">최근 대화</div>
+                <div class="space-y-0.5 overflow-y-auto max-h-60" id="chat-history-list">
+                    <a href="#" class="flex items-center justify-between px-3 py-2 text-sm rounded-lg bg-haru-200/60 dark:bg-stone-800 text-haru-900 dark:text-white font-medium">
+                        <span class="truncate">주말 여행 일정 계획표 작성</span>
+                        <i class="fa-solid fa-angle-right text-xs text-haru-400"></i>
+                    </a>
+                    <a href="#" class="flex items-center justify-between px-3 py-2 text-sm rounded-lg text-haru-700 dark:text-haru-300 hover:bg-haru-200/40 dark:hover:bg-stone-800/60 transition-colors">
+                        <span class="truncate">비즈니스 레터 다듬기</span>
+                    </a>
+                    <a href="#" class="flex items-center justify-between px-3 py-2 text-sm rounded-lg text-haru-700 dark:text-haru-300 hover:bg-haru-200/40 dark:hover:bg-stone-800/60 transition-colors">
+                        <span class="truncate">저녁 식단 및 쇼핑 리스트</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sidebar Footer -->
+        <div class="p-3 border-t border-haru-200/50 dark:border-haru-darkborder space-y-2">
+            <!-- Theme Toggle Button -->
+            <button onclick="toggleDarkMode()" class="w-full flex items-center justify-between px-3 py-2 text-sm text-haru-700 dark:text-haru-300 hover:bg-haru-200/40 dark:hover:bg-stone-800 rounded-lg transition-colors">
+                <div class="flex items-center gap-2.5">
+                    <i id="theme-icon" class="fa-regular fa-moon text-haru-500"></i>
+                    <span id="theme-text">다크 모드</span>
+                </div>
+                <span class="text-xs px-2 py-0.5 bg-haru-200 dark:bg-stone-700 rounded text-haru-600 dark:text-stone-300">Warm</span>
+            </button>
+
+            <!-- User Profile Summary -->
+            <div class="flex items-center gap-3 px-3 py-2 rounded-lg bg-haru-50/50 dark:bg-stone-900/50">
+                <div class="w-8 h-8 rounded-full bg-haru-500 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                    민
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-xs font-semibold text-haru-900 dark:text-haru-100 truncate">민서 님</p>
+                    <p class="text-[10px] text-haru-400 dark:text-stone-400 truncate">Haru Pro 구독 중</p>
+                </div>
+            </div>
+        </div>
+    </aside>
+
+    <!-- Main Content Area -->
+    <main class="flex-1 flex flex-col h-full relative overflow-hidden bg-haru-50 dark:bg-haru-darkbg">
+        
+        <!-- Header -->
+        <header class="h-16 px-4 md:px-8 border-b border-haru-200/50 dark:border-haru-darkborder/60 flex items-center justify-between bg-haru-50/80 dark:bg-haru-darkbg/80 backdrop-blur-md z-20">
+            <div class="flex items-center gap-3">
+                <button onclick="toggleSidebar()" class="md:hidden p-2 text-haru-700 dark:text-haru-200 hover:bg-haru-200/50 rounded-lg">
+                    <i class="fa-solid fa-bars text-lg"></i>
+                </button>
+                <div class="flex items-center gap-2.5">
+                    <!-- Haru Icon / Logo -->
+                    <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-haru-500 to-amber-400 flex items-center justify-center text-white shadow-sm shadow-haru-500/20">
+                        <i class="fa-solid fa-sun text-sm"></i>
+                    </div>
+                    <div>
+                        <h1 class="text-lg font-bold tracking-tight text-haru-900 dark:text-haru-50 flex items-center gap-2">
+                            Haru <span class="text-[10px] uppercase font-semibold px-1.5 py-0.5 bg-haru-100 dark:bg-stone-800 text-haru-600 dark:text-haru-300 rounded border border-haru-200 dark:border-stone-700">v2.5</span>
+                        </h1>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status & Actions -->
+            <div class="flex items-center gap-3">
+                <div class="hidden sm:flex items-center gap-2 px-3 py-1 bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200/60 dark:border-emerald-800/40 rounded-full text-xs font-medium">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Haru 가 준비되어 있습니다</span>
+                </div>
+                <button class="p-2 text-haru-600 dark:text-haru-300 hover:bg-haru-200/40 dark:hover:bg-stone-800 rounded-lg transition-colors" title="설정">
+                    <i class="fa-solid fa-sliders"></i>
+                </button>
+            </div>
+        </header>
+
+        <!-- Dynamic Chat Stream Area -->
+        <div id="chat-wrapper" class="flex-1 overflow-y-auto px-4 md:px-0 py-6 scroll-smooth">
+            <div class="max-w-3xl mx-auto space-y-6">
+
+                <!-- Hero / Welcome Section (Shown initially) -->
+                <div id="welcome-section" class="py-10 text-center space-y-6">
+                    <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-haru-100 dark:bg-stone-800 text-haru-500 dark:text-haru-400 mb-2 shadow-inner border border-haru-200/50 dark:border-stone-700">
+                        <i class="fa-regular fa-sun text-3xl"></i>
+                    </div>
+                    <div class="space-y-2">
+                        <h2 class="text-2xl md:text-3xl font-bold tracking-tight text-haru-900 dark:text-haru-50">
+                            좋은 하루입니다, 민서 님!
+                        </h2>
+                        <p class="text-haru-700 dark:text-haru-300 max-w-md mx-auto text-sm md:text-base leading-relaxed">
+                            오늘 일상 속에서 Haru가 어떤 일들을 도와드릴까요?
+                        </p>
+                    </div>
+
+                    <!-- Workflow Prompt Suggestions -->
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 text-left max-w-2xl mx-auto">
+                        <button onclick="triggerQuickAction('오늘 집중해야 할 3가지 중요 업무 정리해줘')" class="p-4 rounded-xl border border-haru-200/70 dark:border-haru-darkborder bg-white/70 dark:bg-haru-darkcard/70 hover:bg-white dark:hover:bg-haru-darkcard hover:border-haru-400 dark:hover:border-haru-500/60 shadow-sm transition-all group">
+                            <div class="flex items-center gap-3 mb-1">
+                                <div class="w-7 h-7 rounded-lg bg-amber-100 dark:bg-amber-950/50 text-amber-600 dark:text-amber-400 flex items-center justify-center text-xs">
+                                    <i class="fa-solid fa-list-check"></i>
+                                </div>
+                                <span class="text-xs font-semibold text-haru-500 uppercase tracking-wider">업무 관리</span>
+                            </div>
+                            <p class="text-sm font-medium text-haru-900 dark:text-haru-100 group-hover:text-haru-600 dark:group-hover:text-haru-400 transition-colors">
+                                "오늘 집중해야 할 3가지 중요 업무 정리해줘"
+                            </p>
+                        </button>
+
+                        <button onclick="triggerQuickAction('부드럽고 정중한 톤으로 미팅 일정 변경 이메일 작성해줘')" class="p-4 rounded-xl border border-haru-200/70 dark:border-haru-darkborder bg-white/70 dark:bg-haru-darkcard/70 hover:bg-white dark:hover:bg-haru-darkcard hover:border-haru-400 dark:hover:border-haru-500/60 shadow-sm transition-all group">
+                            <div class="flex items-center gap-3 mb-1">
+                                <div class="w-7 h-7 rounded-lg bg-rose-100 dark:bg-rose-950/50 text-rose-600 dark:text-rose-400 flex items-center justify-center text-xs">
+                                    <i class="fa-regular fa-envelope"></i>
+                                </div>
+                                <span class="text-xs font-semibold text-haru-500 uppercase tracking-wider">커뮤니케이션</span>
+                            </div>
+                            <p class="text-sm font-medium text-haru-900 dark:text-haru-100 group-hover:text-haru-600 dark:group-hover:text-haru-400 transition-colors">
+                                "미팅 일정 변경을 요청하는 정중한 이메일 쓰기"
+                            </p>
+                        </button>
+
+                        <button onclick="triggerQuickAction('저녁에 20분 내로 만들 수 있는 건강한 레시피 추천해줘')" class="p-4 rounded-xl border border-haru-200/70 dark:border-haru-darkborder bg-white/70 dark:bg-haru-darkcard/70 hover:bg-white dark:hover:bg-haru-darkcard hover:border-haru-400 dark:hover:border-haru-500/60 shadow-sm transition-all group">
+                            <div class="flex items-center gap-3 mb-1">
+                                <div class="w-7 h-7 rounded-lg bg-emerald-100 dark:bg-emerald-950/50 text-emerald-600 dark:text-emerald-400 flex items-center justify-center text-xs">
+                                    <i class="fa-solid fa-utensils"></i>
+                                </div>
+                                <span class="text-xs font-semibold text-haru-500 uppercase tracking-wider">라이프스타일</span>
+                            </div>
+                            <p class="text-sm font-medium text-haru-900 dark:text-haru-100 group-hover:text-haru-600 dark:group-hover:text-haru-400 transition-colors">
+                                "20분 내로 만들 수 있는 건강한 저녁 레시피"
+                            </p>
+                        </button>
+
+                        <button onclick="triggerQuickAction('주말 하루 동안 즐길 수 있는 미니 원데이 클래스 아이디어')" class="p-4 rounded-xl border border-haru-200/70 dark:border-haru-darkborder bg-white/70 dark:bg-haru-darkcard/70 hover:bg-white dark:hover:bg-haru-darkcard hover:border-haru-400 dark:hover:border-haru-500/60 shadow-sm transition-all group">
+                            <div class="flex items-center gap-3 mb-1">
+                                <div class="w-7 h-7 rounded-lg bg-indigo-100 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 flex items-center justify-center text-xs">
+                                    <i class="fa-solid fa-lightbulb"></i>
+                                </div>
+                                <span class="text-xs font-semibold text-haru-500 uppercase tracking-wider">영상 & 브레인스토밍</span>
+                            </div>
+                            <p class="text-sm font-medium text-haru-900 dark:text-haru-100 group-hover:text-haru-600 dark:group-hover:text-haru-400 transition-colors">
+                                "주말 동안 즐길 수 있는 미니 취미 활동 추천"
+                            </p>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Chat History Messages Container -->
+                <div id="messages-list" class="space-y-6">
+                    <!-- Example Pre-loaded Conversation Pair for visual excellence -->
+                    
+                    <!-- User Message -->
+                    <div class="flex justify-end">
+                        <div class="max-w-[85%] sm:max-w-[75%] rounded-2xl rounded-tr-sm bg-haru-900 dark:bg-stone-800 text-white px-5 py-3.5 shadow-sm">
+                            <p class="text-sm leading-relaxed">Haru, 이번 주말에 서울 근교로 당일치기 힐링 여행 코스 좀 제안해줘. 너무 붐비지 않고 자연을 느낄 수 있는 곳이었으면 좋겠어.</p>
+                        </div>
+                    </div>
+
+                    <!-- Haru AI Response -->
+                    <div class="flex gap-4 items-start">
+                        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-haru-500 to-amber-400 flex-shrink-0 flex items-center justify-center text-white shadow-sm mt-1">
+                            <i class="fa-solid fa-sun text-xs"></i>
+                        </div>
+                        <div class="flex-1 max-w-[90%] sm:max-w-[85%] space-y-3">
+                            <div class="bg-white dark:bg-haru-darkcard border border-haru-200/60 dark:border-haru-darkborder rounded-2xl rounded-tl-sm p-5 shadow-sm leading-relaxed space-y-4">
+                                <p class="text-sm text-haru-800 dark:text-haru-100">
+                                    민서 님, 복잡한 일상을 벗어나 여유를 찾을 수 있는 **경기도 양평/남양주 힐링 당일치기 코스**를 준비했어요 🌿
+                                </p>
+                                
+                                <div class="space-y-3 pt-1">
+                                    <div class="p-3 bg-haru-50 dark:bg-stone-900/50 rounded-xl border border-haru-100 dark:border-stone-800">
+                                        <div class="font-semibold text-xs text-haru-500 mb-1">오전 10:30 • 수종사 (남양주)</div>
+                                        <div class="text-sm text-haru-800 dark:text-haru-200">운길산 자락에 위치해 두물머리 풍경이 한눈에 내려다보이는 호젓한 사찰입니다. 다실에서 따뜻한 차 한 잔 나누기 좋습니다.</div>
+                                    </div>
+                                    <div class="p-3 bg-haru-50 dark:bg-stone-900/50 rounded-xl border border-haru-100 dark:border-stone-800">
+                                        <div class="font-semibold text-xs text-haru-500 mb-1">오후 01:00 • 서종 숲속 로컬 다이닝</div>
+                                        <div class="text-sm text-haru-800 dark:text-haru-200">조용한 문호리 리버마켓 근처의 제철 식재료를 활용한 정갈한 파스타 및 브런치 카페.</div>
+                                    </div>
+                                    <div class="p-3 bg-haru-50 dark:bg-stone-900/50 rounded-xl border border-haru-100 dark:border-stone-800">
+                                        <div class="font-semibold text-xs text-haru-500 mb-1">오후 03:30 • 구하우스 미술관</div>
+                                        <div class="text-sm text-haru-800 dark:text-haru-200">'집'을 콘셉트로 한 예술적이고 친근한 컨템포러리 아트 뮤지엄입니다. 정원 산책도 함께 즐길 수 있습니다.</div>
+                                    </div>
+                                </div>
+
+                                <p class="text-sm text-haru-800 dark:text-haru-200">
+                                    이 코스 중에서 이동 동선이나 식당 메뉴 변경이 필요하시면 편하게 말씀해 주세요!
+                                </p>
+                            </div>
+
+                            <!-- Action bar for assistant response -->
+                            <div class="flex items-center gap-3 text-xs text-haru-400 dark:text-stone-500 pl-1">
+                                <button onclick="copyResponse(this)" class="hover:text-haru-600 dark:hover:text-haru-300 flex items-center gap-1 transition-colors">
+                                    <i class="fa-regular fa-copy"></i> 복사
+                                </button>
+                                <button class="hover:text-haru-600 dark:hover:text-haru-300 flex items-center gap-1 transition-colors">
+                                    <i class="fa-regular fa-thumbs-up"></i> 좋아
+                                </button>
+                                <button class="hover:text-haru-600 dark:hover:text-haru-300 flex items-center gap-1 transition-colors">
+                                    <i class="fa-solid fa-rotate-right"></i> 다시 생성
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+
+        <!-- Sleek Bottom Input Container -->
+        <div class="p-4 md:px-8 border-t border-haru-200/40 dark:border-haru-darkborder/50 bg-haru-50/90 dark:bg-haru-darkbg/90 backdrop-blur-md">
+            <div class="max-w-3xl mx-auto">
+                <form id="chat-form" onsubmit="handleSend(event)" class="relative bg-white dark:bg-haru-darkcard border border-haru-200 dark:border-haru-darkborder focus-within:border-haru-500 dark:focus-within:border-haru-500 rounded-2xl shadow-sm transition-all">
+                    
+                    <textarea 
+                        id="user-input"
+                        rows="2" 
+                        placeholder="Haru에게 무엇이든 물어보거나 부탁하세요..." 
+                        class="w-full pl-4 pr-24 py-3 bg-transparent text-sm text-haru-900 dark:text-haru-100 placeholder-haru-400 dark:placeholder-stone-500 focus:outline-none resize-none"
+                        onkeydown="if(event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); handleSend(event); }"
+                    ></textarea>
+
+                    <!-- Input Toolbar / Buttons -->
+                    <div class="flex items-center justify-between px-3 py-2 border-t border-haru-100 dark:border-stone-800/60">
+                        <div class="flex items-center gap-1 text-haru-400">
+                            <button type="button" class="p-1.5 hover:text-haru-600 dark:hover:text-haru-200 hover:bg-haru-100 dark:hover:bg-stone-800 rounded-lg transition-colors" title="파일 첨부">
+                                <i class="fa-solid fa-paperclip text-sm"></i>
+                            </button>
+                            <button type="button" onclick="toggleVoiceInput()" id="voice-btn" class="p-1.5 hover:text-haru-600 dark:hover:text-haru-200 hover:bg-haru-100 dark:hover:bg-stone-800 rounded-lg transition-colors" title="음성 입력">
+                                <i class="fa-solid fa-microphone text-sm"></i>
+                            </button>
+                            <span class="text-xs text-haru-300 dark:text-stone-600 ml-2 hidden sm:inline">Shift + Enter로 줄바꿈</span>
+                        </div>
+
+                        <!-- Send Button -->
+                        <button type="submit" id="send-btn" class="px-3.5 py-1.5 bg-haru-500 hover:bg-haru-600 active:scale-95 text-white text-xs font-semibold rounded-xl shadow-sm transition-all flex items-center gap-1.5 disabled:opacity-50">
+                            <span>보내기</span>
+                            <i class="fa-solid fa-arrow-up text-xs"></i>
+                        </button>
+                    </div>
+                </form>
+                <div class="text-[11px] text-center text-haru-400 dark:text-stone-500 mt-2">
+                    Haru는 일상 업무를 돕는 다정한 인공지능 비서입니다. 중요한 정보는 다시 확인해주세요.
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="fixed bottom-20 right-6 bg-haru-800 text-white dark:bg-stone-100 dark:text-stone-900 px-4 py-2.5 rounded-xl shadow-lg text-xs font-medium transform translate-y-10 opacity-0 transition-all duration-300 pointer-events-none z-50 flex items-center gap-2">
+        <i class="fa-solid fa-check text-emerald-400 dark:text-emerald-600"></i>
+        <span id="toast-message">클립보드에 복사되었습니다.</span>
+    </div>
+
+    <script>
+        // Toggle Sidebar on mobile
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebar-overlay');
+            sidebar.classList.toggle('-translate-x-full');
+            overlay.classList.toggle('hidden');
+        }
+
+        // Toggle Dark / Light mode (Warm tone focused)
+        function toggleDarkMode() {
+            const html = document.documentElement;
+            const themeIcon = document.getElementById('theme-icon');
+            const themeText = document.getElementById('theme-text');
+
+            if (html.classList.contains('dark')) {
+                html.classList.remove('dark');
+                themeIcon.className = 'fa-regular fa-moon text-haru-500';
+                themeText.innerText = '다크 모드';
+            } else {
+                html.classList.add('dark');
+                themeIcon.className = 'fa-regular fa-sun text-haru-500';
+                themeText.innerText = '라이트 모드';
+            }
+        }
+
+        // Trigger Quick Prompts from Hero cards or Sidebar
+        function triggerQuickAction(promptText) {
+            const input = document.getElementById('user-input');
+            input.value = promptText;
+            input.focus();
+        }
+
+        // Create new chat UI reset
+        function createNewChat() {
+            const messagesList = document.getElementById('messages-list');
+            const welcomeSection = document.getElementById('welcome-section');
+            messagesList.innerHTML = '';
+            welcomeSection.style.display = 'block';
+            showToast('새로운 대화가 시작되었습니다.');
+        }
+
+        // Copy text helper
+        function copyResponse(btn) {
+            const textToCopy = btn.closest('.flex-1').querySelector('.bg-white, .dark\\:bg-haru-darkcard').innerText;
+            
+            // execCommand fallback for seamless preview copy
+            const tempTextArea = document.createElement('textarea');
+            tempTextArea.value = textToCopy;
+            document.body.appendChild(tempTextArea);
+            tempTextArea.select();
+            document.execCommand('copy');
+            document.body.removeChild(tempTextArea);
+
+            showToast('답변 내용이 복사되었습니다.');
+        }
+
+        // Toast message display
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-message');
+            toastMsg.innerText = msg;
+            toast.classList.remove('translate-y-10', 'opacity-0');
+            setTimeout(() => {
+                toast.classList.add('translate-y-10', 'opacity-0');
+            }, 2500);
+        }
+
+        // Simulated Voice Input Toggle
+        let isRecording = false;
+        function toggleVoiceInput() {
+            const voiceBtn = document.getElementById('voice-btn');
+            isRecording = !isRecording;
+
+            if (isRecording) {
+                voiceBtn.classList.add('text-rose-500', 'animate-pulse');
+                showToast('음성을 듣고 있습니다...');
+            } else {
+                voiceBtn.classList.remove('text-rose-500', 'animate-pulse');
+                showToast('음성 입력이 완료되었습니다.');
+            }
+        }
+
+        // Handle sending user prompt
+        function handleSend(event) {
+            event.preventDefault();
+            const input = document.getElementById('user-input');
+            const message = input.value.trim();
+
+            if (!message) return;
+
+            const welcomeSection = document.getElementById('welcome-section');
+            if (welcomeSection) {
+                welcomeSection.style.display = 'none';
+            }
+
+            const messagesList = document.getElementById('messages-list');
+
+            // Append User Message
+            const userMsgHTML = `
+                <div class="flex justify-end animate-fade-in">
+                    <div class="max-w-[85%] sm:max-w-[75%] rounded-2xl rounded-tr-sm bg-haru-900 dark:bg-stone-800 text-white px-5 py-3.5 shadow-sm">
+                        <p class="text-sm leading-relaxed">${escapeHtml(message)}</p>
+                    </div>
+                </div>
+            `;
+            messagesList.insertAdjacentHTML('beforeend', userMsgHTML);
+
+            input.value = '';
+            scrollToBottom();
+
+            // Simulate Haru AI Response
+            simulateHaruResponse(message);
+        }
+
+        // Simulated intelligent AI response with Claude-like warm tone
+        function simulateHaruResponse(userMsg) {
+            const messagesList = document.getElementById('messages-list');
+
+            // Typing Indicator Placeholder
+            const typingId = 'typing-' + Date.now();
+            const typingHTML = `
+                <div id="${typingId}" class="flex gap-4 items-start">
+                    <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-haru-500 to-amber-400 flex-shrink-0 flex items-center justify-center text-white shadow-sm mt-1">
+                        <i class="fa-solid fa-sun text-xs"></i>
+                    </div>
+                    <div class="bg-white dark:bg-haru-darkcard border border-haru-200/60 dark:border-haru-darkborder rounded-2xl rounded-tl-sm p-4 shadow-sm flex items-center gap-1.5 text-haru-400">
+                        <span class="w-2 h-2 rounded-full bg-haru-400 animate-bounce"></span>
+                        <span class="w-2 h-2 rounded-full bg-haru-400 animate-bounce" style="animation-delay: 0.2s"></span>
+                        <span class="w-2 h-2 rounded-full bg-haru-400 animate-bounce" style="animation-delay: 0.4s"></span>
+                    </div>
+                </div>
+            `;
+            messagesList.insertAdjacentHTML('beforeend', typingHTML);
+            scrollToBottom();
+
+            setTimeout(() => {
+                const typingElem = document.getElementById(typingId);
+                if (typingElem) typingElem.remove();
+
+                const responseText = generateSmartReply(userMsg);
+                const aiMsgHTML = `
+                    <div class="flex gap-4 items-start animate-fade-in">
+                        <div class="w-8 h-8 rounded-xl bg-gradient-to-tr from-haru-500 to-amber-400 flex-shrink-0 flex items-center justify-center text-white shadow-sm mt-1">
+                            <i class="fa-solid fa-sun text-xs"></i>
+                        </div>
+                        <div class="flex-1 max-w-[90%] sm:max-w-[85%] space-y-3">
+                            <div class="bg-white dark:bg-haru-darkcard border border-haru-200/60 dark:border-haru-darkborder rounded-2xl rounded-tl-sm p-5 shadow-sm leading-relaxed text-sm text-haru-800 dark:text-haru-100 space-y-3">
+                                ${responseText}
+                            </div>
+                            <div class="flex items-center gap-3 text-xs text-haru-400 dark:text-stone-500 pl-1">
+                                <button onclick="copyResponse(this)" class="hover:text-haru-600 dark:hover:text-haru-300 flex items-center gap-1 transition-colors">
+                                    <i class="fa-regular fa-copy"></i> 복사
+                                </button>
+                                <button class="hover:text-haru-600 dark:hover:text-haru-300 flex items-center gap-1 transition-colors">
+                                    <i class="fa-regular fa-thumbs-up"></i> 좋아
+                                </button>
+                                <button class="hover:text-haru-600 dark:hover:text-haru-300 flex items-center gap-1 transition-colors">
+                                    <i class="fa-solid fa-rotate-right"></i> 다시 생성
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                messagesList.insertAdjacentHTML('beforeend', aiMsgHTML);
+                scrollToBottom();
+            }, 1200);
+        }
+
+        // Helper to generate context-based warm responses
+        function generateSmartReply(input) {
+            if (input.includes('업무') || input.includes('요약')) {
+                return `<p>오늘 하루를 알차게 보내실 수 있도록 주요 우선순위를 세 가지로 정리해 드릴게요.</p>
+                        <ul class="list-disc pl-5 space-y-1 text-haru-700 dark:text-haru-200">
+                            <li><strong>우선순위 1:</strong> 핵심 리포트 작성 및 피드백 반영</li>
+                            <li><strong>우선순위 2:</strong> 주요 파트너사 미팅 안건 점검</li>
+                            <li><strong>우선순위 3:</strong> 퇴근 전 일주일 일정 동선 캘린더 정리</li>
+                        </ul>
+                        <p>추가로 문서 작성이나 이메일 보완이 필요하시면 바로 요청하세요!</p>`;
+            } else if (input.includes('이메일') || input.includes('편지') || input.includes('답장')) {
+                return `<p>상대방을 배려하면서도 요청 사항을 정중하게 전달할 수 있는 초안입니다:</p>
+                        <blockquote class="p-3 bg-haru-50 dark:bg-stone-900 border-l-4 border-haru-500 rounded-r-lg italic text-haru-700 dark:text-haru-300">
+                            "안녕하세요 [이름] 님,<br><br>보내주신 일정 안건을 잘 확인하였습니다. 제안해주신 시간대도 좋으나, 당일 사전 일정으로 인해 아래와 같이 조금 조정이 가능할지 여쭤봅니다..."
+                        </blockquote>
+                        <p>어조를 조금 더 다정하게 변경하거나 수정을 원하시면 말씀해 주세요.</p>`;
+            } else {
+                return `<p>네, 민서 님! 요청해주신 <strong>"${escapeHtml(input)}"</strong>에 대해 차근차근 도와드릴게요.</p>
+                        <p>일상의 부담을 덜어드릴 수 있도록 더 구체적인 단계별 가이드나 아이디어가 필요하시면 편하게 이어서 말씀해 주세요 🌱</p>`;
+            }
+        }
+
+        function scrollToBottom() {
+            const chatWrapper = document.getElementById('chat-wrapper');
+            chatWrapper.scrollTop = chatWrapper.scrollHeight;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.innerText = text;
+            return div.innerHTML;
+        }
+    </script>
+</body>
+</html>

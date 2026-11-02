@@ -31,7 +31,7 @@ export default function Composer({
 
   return (
     <form
-      className="w-full max-w-2xl rounded-2xl border border-line bg-surface p-3"
+      className="w-full max-w-2xl rounded-2xl border border-line bg-surface p-3 transition-colors focus-within:border-accent"
       onSubmit={(e) => {
         e.preventDefault();
         if (canSend) onSubmit();

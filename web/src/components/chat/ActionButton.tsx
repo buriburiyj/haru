@@ -17,6 +17,7 @@ export default function ActionButton({ label, onClick, children }: { label: stri
 export function copyText(text: string) {
   try {
     void navigator.clipboard.writeText(text);
+    window.dispatchEvent(new CustomEvent("haru:copied"));
   } catch {
     /* clipboard unavailable */
   }

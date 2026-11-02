@@ -4,6 +4,7 @@ import type { Msg } from "../types";
 import TopBar from "./chat/TopBar";
 import UserMessage from "./chat/UserMessage";
 import AssistantMessage from "./chat/AssistantMessage";
+import CopyToast from "./chat/CopyToast";
 
 export type ChatViewProps = {
   msgs: Msg[];
@@ -27,7 +28,11 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
   return (
     <div className="flex h-full flex-col bg-bg text-fg">
       <TopBar title={title} onMenu={onMenu} />
-      <div className="flex-1 overflow-y-auto">
+      <CopyToast />
+      <div className="relative min-h-0 flex-1">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-bg to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-gradient-to-t from-bg to-transparent" />
+        <div className="h-full overflow-y-auto">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
           {msgs.map((m, i) =>
             m.role === "user" ? (
@@ -38,6 +43,7 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
           )}
           {notice && <p className="text-xs text-muted">{notice}</p>}
           <div ref={endRef} />
+        </div>
         </div>
       </div>
       <div className="mx-auto w-full max-w-3xl px-4 pb-2">
