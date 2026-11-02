@@ -16,6 +16,9 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 - UI skeleton built (static, build passes, no raw colors, NOT opened in a browser yet): Sidebar+Welcome, Composer (+ menu, model menu, effort), ChatView. Still placeholder: + submenu items, web search toggle (local state only), file upload, / skills list, user message time fixed to '방금', recent chats list empty, Sidebar Chat/Code tab does nothing.
 - Owners (done): Sidebar.tsx+Welcome.tsx (sidebar agent), Composer.tsx (composer agent), ChatView.tsx (chat agent); App.tsx assembles. Server link (VITE_API_URL) belongs to the other session.
 
+- Tokens confirmed from reference.html (light/dark values, accent #DA7756, 6px scrollbar); no raw colors in components. Logo = transparent PNG (src/assets/logo.png), favicon.svg, apple-touch-icon 180, PWA icon 192 (any + maskable).
+- NEED HIGH-RES ICON ORIGINAL (고해상도 원본 필요): icon_transparent.png only has a ~194px icon, so no 512px PWA icon was made (not upscaled). web/design/icon_raw.png is a 59-byte JSON file, unused, not committed.
+
 ## Blocked
 - Hostless: junbot worker DELETED (user approved, repo jun-server untouched). Estimate now $0.00. haru-server not created: Hostless wizard cannot see buriburiyj/haru even after adding it in GitHub app settings. Next: Hostless Project settings -> Git connections -> disconnect/reconnect GitHub (may need user passkey), then create app (root dir server/, start `uvicorn main:app --host 0.0.0.0 --port $PORT`), $0.00 only, then enter env vars.
 - Aside session GYBNT6BZg9A08Sez is mid-wizard creating haru-server in Hostless (GitHub reconnected, size Small/Standard at $0.00). Wait for its report; do not send it new instructions until it finishes.
