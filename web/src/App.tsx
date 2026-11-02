@@ -1,89 +1,84 @@
-import { FormEvent, useEffect, useState } from "react";
-import { chat, hasSession, login, register, Msg } from "./api";
+import { useState } from "react";
+import { useAuth } from "./hooks/useAuth";
+import { useChat } from "./hooks/useChat";
+import Sidebar from "./components/Sidebar";
+import Welcome from "./components/Welcome";
+import Composer from "./components/Composer";
+import ChatView from "./components/ChatView";
+import LoginScreen from "./components/LoginScreen";
+import type { Effort, ModelId, Mode } from "./types";
+
+const MODEL_LABELS: Record<string, string> = {
+  auto: "자동",
+  "gpt-6-luna": "GPT-6 Luna",
+  "gpt-5.6-terra": "GPT-5.6 Terra",
+  "gpt-5.6-luna": "GPT-5.6 Luna",
+  fast: "빠른 답변",
+};
 
 export default function App() {
-  const [authed, setAuthed] = useState<boolean | null>(null);
-  const [error, setError] = useState("");
-  const [setupToken, setSetupToken] = useState("");
-  const [msgs, setMsgs] = useState<Msg[]>([]);
+  const auth = useAuth();
+  const chat = useChat(() => auth.setAuthed(false));
   const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [chatId, setChatId] = useState<string | undefined>();
+  const [model, setModel] = useState<ModelId>("auto");
+  const [effort, setEffort] = useState<Effort>("medium");
+  const [mode, setMode] = useState<Mode>("chat");
+  const [drawer, setDrawer] = useState(false);
 
-  useEffect(() => {
-    hasSession().then(setAuthed);
-  }, []);
-
-  const auth = async (fn: () => Promise<void>) => {
-    setError("");
-    try {
-      await fn();
-      setAuthed(true);
-    } catch {
-      setError("인증에 실패했어요. 다시 시도해 주세요.");
-    }
-  };
-
-  const send = async (e: FormEvent) => {
-    e.preventDefault();
-    const content = text.trim();
-    if (!content || busy) return;
-    const history: Msg[] = [...msgs, { role: "user", content }];
-    setMsgs([...history, { role: "assistant", content: "" }]);
-    setText("");
-    setNotice("");
-    setBusy(true);
-    try {
-      for await (const ev of chat(history, chatId)) {
-        if (ev.kind === "delta") {
-          setMsgs((m) => {
-            const last = m[m.length - 1];
-            return [...m.slice(0, -1), { ...last, content: last.content + ev.text }];
-          });
-        } else if (ev.kind === "notice") {
-          setNotice(ev.text);
-        } else {
-          setChatId(ev.chatId);
-          if (!ev.saved) setNotice("저장이 지연되고 있어요. 나중에 다시 시도해요.");
-        }
-      }
-    } catch (err) {
-      if ((err as Error).message === "unauthorized") setAuthed(false);
-      else setNotice("연결에 문제가 있어요.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (authed === null) return <main className="home" />;
-
-  if (!authed) {
-    return (
-      <main className="home">
-        <p className="greeting">패스키로 로그인하세요</p>
-        <button className="btn" onClick={() => auth(login)}>로그인</button>
-        <input className="prompt" type="password" placeholder="설정 토큰 (처음 등록할 때만)"
-          value={setupToken} onChange={(e) => setSetupToken(e.target.value)} aria-label="설정 토큰" />
-        <button className="btn" onClick={() => auth(() => register(setupToken))}>이 기기 등록</button>
-        {error && <p className="notice" role="alert">{error}</p>}
-      </main>
-    );
+  if (auth.authed === null) return <main className="h-full" />;
+  if (!auth.authed) {
+    return <LoginScreen error={auth.error} onSignIn={auth.signIn} onRegister={auth.registerDevice} />;
   }
 
+  const submit = () => {
+    const t = text;
+    setText("");
+    void chat.send(t);
+  };
+
+  const composer = (
+    <Composer
+      value={text}
+      onChange={setText}
+      onSubmit={submit}
+      busy={chat.busy}
+      model={model}
+      effort={effort}
+      onModelChange={(m, e) => {
+        setModel(m);
+        setEffort(e);
+      }}
+      mode={mode}
+      onModeChange={setMode}
+      hideModeSwitch={chat.msgs.length > 0}
+    />
+  );
+
   return (
-    <main className="home">
-      {msgs.length === 0 && <p className="greeting">안녕하세요, 오늘 하루는 어떠세요?</p>}
-      <div className="log">
-        {msgs.map((m, i) => (
-          <p key={i} className={`bubble ${m.role}`}>{m.content}</p>
-        ))}
-      </div>
-      {notice && <p className="notice">{notice}</p>}
-      <form onSubmit={send} className="form">
-        <input className="prompt" type="text" aria-label="메시지 입력" value={text}
-          onChange={(e) => setText(e.target.value)} disabled={busy} />
-      </form>
-    </main>
+    <div className="flex h-full bg-bg text-fg">
+      <Sidebar
+        recent={[]}
+        onNew={chat.reset}
+        userName="준"
+        onLogout={() => auth.setAuthed(false)}
+        open={drawer}
+        onClose={() => setDrawer(false)}
+      />
+      <main className="min-w-0 flex-1">
+        {chat.msgs.length === 0 ? (
+          <Welcome>{composer}</Welcome>
+        ) : (
+          <ChatView
+            msgs={chat.msgs}
+            busy={chat.busy}
+            notice={chat.notice}
+            title="새 대화"
+            modelLabel={MODEL_LABELS[model] ?? model}
+            composer={composer}
+            onMenu={() => setDrawer(true)}
+          />
+        )}
+      </main>
+    </div>
   );
 }

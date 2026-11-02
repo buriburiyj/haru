@@ -1,0 +1,42 @@
+/* 임시: bg/surface/fg/muted/border 값은 임시 베이지/다크 톤입니다. reference.html 확정 시 이 파일만 수정하세요.
+   확정값: --haru-accent (#DA7756), 글꼴 Pretendard. 컴포넌트는 색을 직접 쓰지 말고 var(--haru-*) 또는 Tailwind 토큰만 쓰세요. */
+:root {
+  color-scheme: light dark;
+  --haru-accent: #da7756;
+  --haru-accent-fg: #ffffff;
+  --haru-bg: #faf9f5;
+  --haru-surface: #f0eee6;
+  --haru-surface-2: #e8e5da;
+  --haru-fg: #29261b;
+  --haru-muted: #73726c;
+  --haru-border: #dedbd0;
+  --haru-user-bubble: #ece9de;
+  --haru-danger: #b3402a;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --haru-bg: #262624;
+    --haru-surface: #1f1e1d;
+    --haru-surface-2: #30302e;
+    --haru-fg: #f0eee6;
+    --haru-muted: #a3a29a;
+    --haru-border: #3d3d3a;
+    --haru-user-bubble: #141413;
+    --haru-danger: #e07a64;
+  }
+}
+
+:root[data-theme="light"] { color-scheme: light; }
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --haru-bg: #262624;
+  --haru-surface: #1f1e1d;
+  --haru-surface-2: #30302e;
+  --haru-fg: #f0eee6;
+  --haru-muted: #a3a29a;
+  --haru-border: #3d3d3a;
+  --haru-user-bubble: #141413;
+  --haru-danger: #e07a64;
+}

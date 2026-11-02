@@ -1,0 +1,25 @@
+@import "pretendard/dist/web/variable/pretendardvariable.css";
+@import "tailwindcss";
+@import "./styles/tokens.css";
+
+@theme inline {
+  --color-accent: var(--haru-accent);
+  --color-accent-fg: var(--haru-accent-fg);
+  --color-bg: var(--haru-bg);
+  --color-surface: var(--haru-surface);
+  --color-surface-2: var(--haru-surface-2);
+  --color-fg: var(--haru-fg);
+  --color-muted: var(--haru-muted);
+  --color-line: var(--haru-border);
+  --color-bubble: var(--haru-user-bubble);
+  --color-danger: var(--haru-danger);
+  --font-sans: "Pretendard Variable", Pretendard, system-ui, -apple-system, "Apple SD Gothic Neo", sans-serif;
+}
+
+html, body, #root { height: 100%; margin: 0; }
+body {
+  background: var(--haru-bg);
+  color: var(--haru-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
