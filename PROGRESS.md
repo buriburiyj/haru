@@ -20,8 +20,8 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 - NEED HIGH-RES ICON ORIGINAL (고해상도 원본 필요): icon_transparent.png only has a ~194px icon, so no 512px PWA icon was made (not upscaled). web/design/icon_raw.png is a 59-byte JSON file, unused, not committed.
 
 ## Blocked
-- Hostless: junbot worker DELETED (user approved, repo jun-server untouched). Estimate now $0.00. haru-server not created: Hostless wizard cannot see buriburiyj/haru even after adding it in GitHub app settings. Next: Hostless Project settings -> Git connections -> disconnect/reconnect GitHub (may need user passkey), then create app (root dir server/, start `uvicorn main:app --host 0.0.0.0 --port $PORT`), $0.00 only, then enter env vars.
-- Aside session GYBNT6BZg9A08Sez is mid-wizard creating haru-server in Hostless (GitHub reconnected, size Small/Standard at $0.00). Wait for its report; do not send it new instructions until it finishes.
+- (resolved) Hostless: junbot DELETED (user approved); haru-server created at https://haru-server.hostless.app, $0.00, deploys from repo haru/server on main, /health 200, /chat without session 401 (verified with curl). Size shows Standard (0.5 vCPU/1GiB) on the scaling page; confirm it is intended and still $0.00. Env vars NOT entered yet (needs GROQ_API_KEY, NVIDIA_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, HARU_GH_TOKEN as GITHUB_TOKEN, SESSION_SECRET, SETUP_TOKEN; Aside cannot read the real ~/computer-use/.env, so the user must paste values or use the Import .env button).
+- Aside session GYBNT6BZg9A08Sez finished haru-server and a read-only check of https://buriburiyj.github.io/haru/ (loads, light/dark OK, 390px OK, no visible bugs).
 
 ## Remaining
 - Exam order stays gpt-6-luna -> gpt-5.6-terra -> gpt-5.6-luna (both 13/13)
@@ -30,4 +30,4 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 - Stages 1-6 per SPEC.md section 12
 
 ## Next (one line)
-Finish Hostless haru-server (GitHub reconnected; Standard/Small only if estimate is $0.00; set SESSION_SECRET and SETUP_TOKEN), check /health, set VITE_API_URL for the web build, then test login/chat with real keys. A3 (Codex in Actions) is done; web login/chat UI and server tests exist but are untested against a live server.
+Enter the env vars in Hostless (user pastes values), set VITE_API_URL=https://haru-server.hostless.app for the web build, then test passkey register/login and /chat end to end.
