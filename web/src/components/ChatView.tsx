@@ -1,6 +1,8 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Msg } from "../types";
+import ArtifactPanel from "./artifact/ArtifactPanel";
+import type { ArtifactData } from "./artifact/types";
 import TopBar from "./chat/TopBar";
 import UserMessage from "./chat/UserMessage";
 import AssistantMessage from "./chat/AssistantMessage";
@@ -20,13 +22,15 @@ export type ChatViewProps = {
 
 export default function ChatView({ msgs, busy, notice, title, modelLabel, composer, onMenu }: ChatViewProps) {
   const endRef = useRef<HTMLDivElement>(null);
+  const [artifact, setArtifact] = useState<ArtifactData | null>(null);
   const last = msgs[msgs.length - 1];
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [msgs.length, last?.content]);
 
   return (
-    <div className="flex h-full flex-col bg-bg text-fg">
+    <div className="flex h-full bg-bg text-fg">
+    <div className="flex min-w-0 flex-1 flex-col">
       <TopBar title={title} onMenu={onMenu} />
       <CopyToast />
       <div className="relative min-h-0 flex-1">
@@ -38,7 +42,12 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
             m.role === "user" ? (
               <UserMessage key={i} content={m.content} />
             ) : (
-              <AssistantMessage key={i} content={m.content} pending={busy && i === msgs.length - 1} />
+              <AssistantMessage
+                key={i}
+                content={m.content}
+                pending={busy && i === msgs.length - 1}
+                onOpenArtifact={setArtifact}
+              />
             ),
           )}
           {notice && <p className="text-xs text-muted">{notice}</p>}
@@ -50,6 +59,8 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
         {composer}
         <p className="pt-2 text-center text-xs text-muted">Haru도 실수할 수 있습니다 · {modelLabel}</p>
       </div>
+    </div>
+    <ArtifactPanel artifact={artifact} onClose={() => setArtifact(null)} />
     </div>
   );
 }

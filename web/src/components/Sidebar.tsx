@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { ChatHistoryItem } from "../types";
 import SidebarMenu from "./sidebar/SidebarMenu";
 import UserMenu from "./sidebar/UserMenu";
+import Overlays from "./Overlays";
 import { BackIcon, ChatIcon, CodeIcon, ForwardIcon, PanelIcon } from "./sidebar/icons";
 
 export type SidebarProps = {
@@ -22,6 +23,7 @@ export default function Sidebar({ recent, onNew, userName, onLogout, open, onClo
 
   return (
     <>
+      <Overlays />
       <div
         onClick={onClose}
         className={

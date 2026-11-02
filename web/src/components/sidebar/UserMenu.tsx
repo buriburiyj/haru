@@ -10,7 +10,10 @@ export default function UserMenu({ userName, onLogout }: { userName: string; onL
       {open && (
         <div className="absolute bottom-full left-0 right-0 mb-1 flex flex-col rounded-xl border border-line bg-surface p-1 shadow-lg">
           {items.map((t) => (
-            <button key={t} type="button" className={itemCls} onClick={() => setOpen(false)}>
+            <button key={t} type="button" className={itemCls} onClick={() => {
+                setOpen(false);
+                if (t === "설정") window.dispatchEvent(new Event("haru:open-settings"));
+              }}>
               {t}
             </button>
           ))}
