@@ -39,3 +39,7 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 
 ## Next (one line)
 Enter the env vars in Hostless (user pastes values), set VITE_API_URL=https://haru-server.hostless.app for the web build, then test passkey register/login and /chat end to end.
+- [창A] 2단계 화면(서버 없이): components/customize/ (CustomizePanel 하나를 사이드바 사용자 지정 팝업과 설정 팝업이 공유). 임시 예시 데이터는 customize/sample.ts.
+- [창A] [Skills|커넥터|플러그인]x[내 항목|탐색], 빈 상태 카드, 커넥터 표(이름/유형/상태), Skills 목록(⋯ 메뉴). 서버 연결과 저장은 아직 없음.
+- [창A] web/design/icon_raw.png 삭제함. 아이콘은 icon_transparent.png 기준으로 이미 반영됨(로고 PNG, favicon.svg, apple-touch 180, PWA 192 any+maskable).
+- [창A] 빌드 통과, 색 직접 사용 0건. 브라우저에서 직접 열어 보는 확인은 아직 안 함.
