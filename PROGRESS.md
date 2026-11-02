@@ -5,6 +5,10 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 ## 진행 중
 - [창A] 1단계 화면 부분: 완료, 브라우저 확인 전 (2026-11-03)
 - [창B] 0단계 서버 실제 연결 (2026-11-03)
+- [창A] 3단계 화면(서버 없이) 시작 (2026-11-03 00:22): 채팅 목록/프로젝트/아티팩트 페이지, 임시 채팅 토글, 권한 요청 카드
+- [창A] 수정 범위: web/src/components, styles, design, public만. api.ts, hooks/, server/는 안 건드림
+- [창A] 폰(390px) 점검: ☰ 서랍, 팝업 전체화면, 입력창 키보드 위 고정, 터치 영역 44px
+- [창A] 끝나면 빌드+색 검사 후 web/만 커밋하고 이 네 줄을 완료로 바꿈
 
 ## Done
 - Codex login works in GitHub Actions (jun-files, secret CODEX_AUTH_JSON, workflow codex-auth-test, run 41319601552 success, 23s). So Actions can use Codex when the Mac is off.
