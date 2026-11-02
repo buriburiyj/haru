@@ -1,4 +1,8 @@
+import { useState } from "react";
 import type { ChatHistoryItem } from "../types";
+import SidebarMenu from "./sidebar/SidebarMenu";
+import UserMenu from "./sidebar/UserMenu";
+import { BackIcon, ChatIcon, CodeIcon, ForwardIcon, PanelIcon } from "./sidebar/icons";
 
 export type SidebarProps = {
   recent: ChatHistoryItem[];
@@ -10,12 +14,49 @@ export type SidebarProps = {
   onClose: () => void;
 };
 
-// STUB - owner: sidebar agent. Keep this props contract.
-export default function Sidebar({ onNew, userName }: SidebarProps) {
+export default function Sidebar({ recent, onNew, userName, onLogout, open, onClose }: SidebarProps) {
+  const [tab, setTab] = useState<"chat" | "code">("chat");
+  const iconBtn = "flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg";
+  const tabCls = (on: boolean) =>
+    "flex h-7 w-8 items-center justify-center rounded-md " + (on ? "bg-bg text-fg" : "text-muted");
+
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-line bg-surface p-3 md:block">
-      <button onClick={onNew}>새로 만들기</button>
-      <p>{userName}</p>
-    </aside>
+    <>
+      <div
+        onClick={onClose}
+        className={
+          "fixed inset-0 z-30 bg-fg/40 transition-opacity md:hidden " +
+          (open ? "opacity-100" : "pointer-events-none opacity-0")
+        }
+      />
+      <aside
+        className={
+          "fixed inset-y-0 left-0 z-40 flex w-64 shrink-0 flex-col gap-3 border-r border-line bg-surface p-3 transition-transform md:static md:translate-x-0 " +
+          (open ? "translate-x-0" : "-translate-x-full")
+        }
+      >
+        <div className="flex items-center gap-1">
+          <button type="button" onClick={onClose} aria-label="사이드바 접기" className={iconBtn}>
+            <PanelIcon />
+          </button>
+          <button type="button" aria-label="뒤로" className={iconBtn}>
+            <BackIcon />
+          </button>
+          <button type="button" aria-label="앞으로" className={iconBtn}>
+            <ForwardIcon />
+          </button>
+          <div className="ml-auto flex rounded-lg bg-surface-2 p-0.5">
+            <button type="button" aria-label="Chat" onClick={() => setTab("chat")} className={tabCls(tab === "chat")}>
+              <ChatIcon />
+            </button>
+            <button type="button" aria-label="Code" onClick={() => setTab("code")} className={tabCls(tab === "code")}>
+              <CodeIcon />
+            </button>
+          </div>
+        </div>
+        <SidebarMenu recent={recent} onNew={onNew} />
+        <UserMenu userName={userName} onLogout={onLogout} />
+      </aside>
+    </>
   );
 }
