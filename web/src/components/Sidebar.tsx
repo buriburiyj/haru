@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ChatHistoryItem } from "../types";
 import SidebarMenu from "./sidebar/SidebarMenu";
 import UserMenu from "./sidebar/UserMenu";
@@ -15,8 +15,44 @@ export type SidebarProps = {
   onClose: () => void;
 };
 
-export default function Sidebar({ recent, onNew, userName, onLogout, open, onClose }: SidebarProps) {
+const CLOSE_DRAWER_EVENTS = [
+  "haru:open-search",
+  "haru:open-settings",
+  "haru:open-customize",
+  "haru:open-chats",
+  "haru:open-projects",
+  "haru:open-artifacts",
+  "haru:new-project",
+];
+
+export default function Sidebar({ recent, onNew: onNewProp, userName, onLogout, open: openProp, onClose: onCloseProp }: SidebarProps) {
   const [tab, setTab] = useState<"chat" | "code">("chat");
+  // The first screen has its own ☰ button, which asks the drawer to open through an event.
+  const [local, setLocal] = useState(false);
+  const open = openProp || local;
+  const onClose = () => {
+    setLocal(false);
+    onCloseProp();
+  };
+  useEffect(() => {
+    const openDrawer = () => setLocal(true);
+    const closeDrawer = () => {
+      setLocal(false);
+      onCloseProp();
+    };
+    const newChat = () => {
+      setLocal(false);
+      onNewProp();
+    };
+    window.addEventListener("haru:new-chat", newChat);
+    window.addEventListener("haru:open-drawer", openDrawer);
+    CLOSE_DRAWER_EVENTS.forEach((n) => window.addEventListener(n, closeDrawer));
+    return () => {
+      window.removeEventListener("haru:new-chat", newChat);
+      window.removeEventListener("haru:open-drawer", openDrawer);
+      CLOSE_DRAWER_EVENTS.forEach((n) => window.removeEventListener(n, closeDrawer));
+    };
+  }, [onCloseProp, onNewProp]);
   const iconBtn = "flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg";
   const tabCls = (on: boolean) =>
     "flex h-7 w-8 items-center justify-center rounded-md " + (on ? "bg-bg text-fg" : "text-muted");
@@ -56,7 +92,7 @@ export default function Sidebar({ recent, onNew, userName, onLogout, open, onClo
             </button>
           </div>
         </div>
-        <SidebarMenu recent={recent} onNew={onNew} />
+        <SidebarMenu recent={recent} onNew={onNewProp} />
         <UserMenu userName={userName} onLogout={onLogout} />
       </aside>
     </>

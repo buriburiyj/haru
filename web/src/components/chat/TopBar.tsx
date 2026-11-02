@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { TempChatToggle } from "../temp/TempChat";
 
 export default function TopBar({ title, onMenu }: { title: string; onMenu: () => void }) {
   const [open, setOpen] = useState(false);
@@ -27,6 +28,7 @@ export default function TopBar({ title, onMenu }: { title: string; onMenu: () =>
           </div>
         )}
       </div>
+      <TempChatToggle />
       <button type="button" className="rounded-md px-3 py-1 text-sm text-fg hover:bg-surface-2">
         내보내기
       </button>

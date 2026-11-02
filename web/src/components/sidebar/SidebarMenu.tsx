@@ -29,8 +29,19 @@ export default function SidebarMenu({ recent, onNew }: { recent: ChatHistoryItem
       <nav className="flex flex-col gap-0.5">
         <MenuItem icon={<PlusIcon />} label="새로 만들기" onClick={onNew} />
         <MenuItem icon={<SearchIcon />} label="검색" onClick={() => window.dispatchEvent(new Event("haru:open-search"))} />
-        <MenuItem icon={<FolderIcon />} label="프로젝트" />
-        <MenuItem icon={<ArtifactIcon />} label="아티팩트" />
+        <div className="group/proj relative">
+          <MenuItem icon={<FolderIcon />} label="프로젝트" onClick={() => window.dispatchEvent(new Event("haru:open-projects"))} />
+          <button
+            type="button"
+            aria-label="새 프로젝트"
+            title="새 프로젝트"
+            onClick={() => window.dispatchEvent(new Event("haru:new-project"))}
+            className="absolute right-1 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-md text-muted opacity-0 hover:bg-surface hover:text-fg focus:opacity-100 group-hover/proj:opacity-100 [@media(pointer:coarse)]:opacity-100"
+          >
+            +
+          </button>
+        </div>
+        <MenuItem icon={<ArtifactIcon />} label="아티팩트" onClick={() => window.dispatchEvent(new Event("haru:open-artifacts"))} />
         <MenuItem icon={<CustomizeIcon />} label="사용자 지정" onClick={() => window.dispatchEvent(new Event("haru:open-customize"))} />
       </nav>
       <section className="flex flex-col gap-0.5">
@@ -52,7 +63,11 @@ export default function SidebarMenu({ recent, onNew }: { recent: ChatHistoryItem
                 <span className="shrink-0 text-xs text-muted">{c.when}</span>
               </button>
             ))}
-            <button type="button" className="px-2 py-1.5 text-left text-xs text-muted hover:text-fg">
+            <button
+              type="button"
+              onClick={() => window.dispatchEvent(new Event("haru:open-chats"))}
+              className="px-2 py-1.5 text-left text-xs text-muted hover:text-fg"
+            >
               모두 보기
             </button>
           </>

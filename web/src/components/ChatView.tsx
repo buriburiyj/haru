@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Msg } from "../types";
 import ArtifactPanel from "./artifact/ArtifactPanel";
+import PermissionCard, { demoPermission } from "./permission/PermissionCard";
+import { TempChatBanner } from "./temp/TempChat";
 import type { ArtifactData } from "./artifact/types";
 import TopBar from "./chat/TopBar";
 import UserMessage from "./chat/UserMessage";
@@ -23,6 +25,8 @@ export type ChatViewProps = {
 export default function ChatView({ msgs, busy, notice, title, modelLabel, composer, onMenu }: ChatViewProps) {
   const endRef = useRef<HTMLDivElement>(null);
   const [artifact, setArtifact] = useState<ArtifactData | null>(null);
+  // Example request for the card; shown only with ?demo=permission (or permission-delete). Real requests come from the server later.
+  const [demo, setDemo] = useState(demoPermission);
   const last = msgs[msgs.length - 1];
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: "end" });
@@ -32,6 +36,7 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
     <div className="flex h-full bg-bg text-fg">
     <div className="flex min-w-0 flex-1 flex-col">
       <TopBar title={title} onMenu={onMenu} />
+      <TempChatBanner />
       <CopyToast />
       <div className="relative min-h-0 flex-1">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-6 bg-gradient-to-b from-bg to-transparent" />
@@ -56,6 +61,7 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
         </div>
       </div>
       <div className="mx-auto w-full max-w-3xl px-4 pb-2">
+        {demo && <PermissionCard request={demo} onDecide={() => setDemo(null)} />}
         {composer}
         <p className="pt-2 text-center text-xs text-muted">Haru도 실수할 수 있습니다 · {modelLabel}</p>
       </div>

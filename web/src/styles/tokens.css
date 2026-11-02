@@ -1,3 +1,4 @@
+@import "./mobile.css";
 /* Haru design tokens (confirmed from web/design/reference.html).
    Components must never use raw colors: use var(--haru-*) or the Tailwind tokens from index.css. */
 :root {

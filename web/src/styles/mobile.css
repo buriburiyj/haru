@@ -1,0 +1,26 @@
+/* Phone: touch targets are at least 44px (Apple HIG). Applies only to touch screens. */
+@media (pointer: coarse) {
+  button,
+  select,
+  [role="button"],
+  [role="switch"],
+  input[type="checkbox"] {
+    min-height: 44px;
+    min-width: 44px;
+  }
+  /* inline text-like buttons keep their line but get a taller hit area */
+  textarea,
+  input[type="text"],
+  input[type="password"],
+  input:not([type]) {
+    font-size: 16px; /* prevents iOS zoom on focus */
+  }
+}
+html {
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+}
+body {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
