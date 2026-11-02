@@ -3,7 +3,7 @@
 Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 
 ## 진행 중
-- [창A] 1단계 화면 부분 (2026-11-03 00:08)
+- [창A] 1단계 화면 부분: 완료, 브라우저 확인 전 (2026-11-03)
 
 ## 진행 중
 - [창B] 0단계 서버 실제 연결 (2026-11-03)
@@ -24,6 +24,8 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 
 - Tokens confirmed from reference.html (light/dark values, accent #DA7756, 6px scrollbar); no raw colors in components. Logo = transparent PNG (src/assets/logo.png), favicon.svg, apple-touch-icon 180, PWA icon 192 (any + maskable).
 - NEED HIGH-RES ICON ORIGINAL (고해상도 원본 필요): icon_transparent.png only has a ~194px icon, so no 512px PWA icon was made (not upscaled). web/design/icon_raw.png is a 59-byte JSON file, unused, not committed.
+
+- [창A] Stage 1 screens (static, build passes, no raw colors, NOT yet viewed in a browser): markdown renderer (own, no dependency; code blocks + copy, tables, lists), <think> fold (Thinking.tsx), ArtifactPanel (right pane, phone fullscreen, sandboxed iframe), message edit keeps versions with ‹ 1/2 › (local state only; real tree comes with the server), Settings (⌘,) and Search (⌘K) shells via Overlays.tsx mounted in Sidebar, no billing tab. Placeholders: all sample data, branch/edit not persisted, thinking comes from <think> tags until the server sends it.
 
 ## Blocked
 - (resolved) Hostless: junbot DELETED (user approved); haru-server created at https://haru-server.hostless.app, $0.00, deploys from repo haru/server on main, /health 200, /chat without session 401 (verified with curl). Size shows Standard (0.5 vCPU/1GiB) on the scaling page; confirm it is intended and still $0.00. Env vars NOT entered yet (needs GROQ_API_KEY, NVIDIA_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, HARU_GH_TOKEN as GITHUB_TOKEN, SESSION_SECRET, SETUP_TOKEN; Aside cannot read the real ~/computer-use/.env, so the user must paste values or use the Import .env button).
