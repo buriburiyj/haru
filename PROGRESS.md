@@ -10,6 +10,11 @@ Last updated: 2026-11-02 (Claude Code, deadline 2026-11-02)
 - server/ skeleton (FastAPI /health, SSE /chat, router, storage queue, passkey stubs). Only /health and 401 checked; Groq/NVIDIA/GitHub commit/WebAuthn untested.
 - web/ empty PWA + .github/workflows/pages.yml. Build passes.
 
+## Web UI skeleton (2026-11-02)
+- Foundation done (f020de6): Tailwind v4 (@tailwindcss/vite), Pretendard bundled via npm `pretendard` (no CDN), web/src/styles/tokens.css (TEMP neutral colors, accent #DA7756), components/Logo.tsx (temp SVG, replace with icon.png later).
+- Old App.tsx logic was ABSORBED, not dropped: passkey login/register -> hooks/useAuth.ts; SSE chat send/stream/notice -> hooks/useChat.ts; login form -> components/LoginScreen.tsx; api.ts untouched. web/src/styles.css deleted (replaced by index.css + tokens.css; its .bubble/.home/.prompt classes are gone, superseded by Tailwind components).
+- Owners: Sidebar.tsx+Welcome.tsx (sidebar agent), Composer.tsx (composer agent), ChatView.tsx (chat agent); App.tsx assembles. Server link (VITE_API_URL) belongs to the other session.
+
 ## Blocked
 - Hostless: junbot worker DELETED (user approved, repo jun-server untouched). Estimate now $0.00. haru-server not created: Hostless wizard cannot see buriburiyj/haru even after adding it in GitHub app settings. Next: Hostless Project settings -> Git connections -> disconnect/reconnect GitHub (may need user passkey), then create app (root dir server/, start `uvicorn main:app --host 0.0.0.0 --port $PORT`), $0.00 only, then enter env vars.
 - Aside session GYBNT6BZg9A08Sez is mid-wizard creating haru-server in Hostless (GitHub reconnected, size Small/Standard at $0.00). Wait for its report; do not send it new instructions until it finishes.
