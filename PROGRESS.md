@@ -5,6 +5,9 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 ## 진행 중
 - [창A] 1단계 화면 부분 (2026-11-03 00:08)
 
+## 진행 중
+- [창B] 0단계 서버 실제 연결 (2026-11-03)
+
 ## Done
 - Codex login works in GitHub Actions (jun-files, secret CODEX_AUTH_JSON, workflow codex-auth-test, run 41319601552 success, 23s). So Actions can use Codex when the Mac is off.
 - GitHub Pages live: https://buriburiyj.github.io/haru (200). Token haru-store (jun-files Contents rw, expires 2027-01-30) saved as HARU_GH_TOKEN in ~/computer-use/.env, verified with API 200.
