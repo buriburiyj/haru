@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import SettingsDialog from "./settings/SettingsDialog";
 import SearchDialog from "./search/SearchDialog";
+import CustomizeDialog from "./customize/CustomizeDialog";
 
 export default function Overlays({ isMacApp = false }: { isMacApp?: boolean }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [customizeOpen, setCustomizeOpen] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -27,11 +29,18 @@ export default function Overlays({ isMacApp = false }: { isMacApp?: boolean }) {
       setSettingsOpen(false);
       setSearchOpen(true);
     };
+    const openCustomize = () => {
+      setSettingsOpen(false);
+      setSearchOpen(false);
+      setCustomizeOpen(true);
+    };
     window.addEventListener("keydown", onKey);
+    window.addEventListener("haru:open-customize", openCustomize);
     window.addEventListener("haru:open-settings", openSettings);
     window.addEventListener("haru:open-search", openSearch);
     return () => {
       window.removeEventListener("keydown", onKey);
+      window.removeEventListener("haru:open-customize", openCustomize);
       window.removeEventListener("haru:open-settings", openSettings);
       window.removeEventListener("haru:open-search", openSearch);
     };
@@ -41,6 +50,7 @@ export default function Overlays({ isMacApp = false }: { isMacApp?: boolean }) {
     <>
       {settingsOpen && <SettingsDialog isMacApp={isMacApp} onClose={() => setSettingsOpen(false)} />}
       {searchOpen && <SearchDialog onClose={() => setSearchOpen(false)} />}
+      {customizeOpen && <CustomizeDialog onClose={() => setCustomizeOpen(false)} />}
     </>
   );
 }

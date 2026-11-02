@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
+import CustomizePanel from "../customize/CustomizePanel";
+import type { Kind } from "../customize/sample";
 
 type Row =
   | { label: string; kind: "seg"; options: string[]; initial?: number; theme?: boolean }
@@ -299,13 +301,16 @@ export default function SettingsDialog({
               ✕
             </button>
           </div>
-          {page.rows.length === 0 && page.empty && (
+          {(page.id === "skills" || page.id === "connectors" || page.id === "plugins") && (
+            <CustomizePanel kind={page.id as Kind} hideTitle />
+          )}
+          {page.id !== "skills" && page.id !== "connectors" && page.id !== "plugins" && page.rows.length === 0 && page.empty && (
             <div className="rounded-xl border border-line bg-surface p-6 text-center text-sm text-muted">
               {page.empty}
             </div>
           )}
           <div className="flex flex-col">
-            {page.rows.map((r) => (
+            {page.id !== "skills" && page.id !== "connectors" && page.id !== "plugins" && page.rows.map((r) => (
               <div
                 key={page.id + r.label}
                 className="flex items-center justify-between gap-4 border-b border-line py-3"

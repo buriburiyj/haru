@@ -31,7 +31,7 @@ export default function SidebarMenu({ recent, onNew }: { recent: ChatHistoryItem
         <MenuItem icon={<SearchIcon />} label="검색" onClick={() => window.dispatchEvent(new Event("haru:open-search"))} />
         <MenuItem icon={<FolderIcon />} label="프로젝트" />
         <MenuItem icon={<ArtifactIcon />} label="아티팩트" />
-        <MenuItem icon={<CustomizeIcon />} label="사용자 지정" />
+        <MenuItem icon={<CustomizeIcon />} label="사용자 지정" onClick={() => window.dispatchEvent(new Event("haru:open-customize"))} />
       </nav>
       <section className="flex flex-col gap-0.5">
         <button
