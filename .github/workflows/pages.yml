@@ -29,6 +29,8 @@ jobs:
         working-directory: web
       - run: npm run build
         working-directory: web
+        env:
+          VITE_API_URL: https://haru-server.hostless.app
       - uses: actions/upload-pages-artifact@v3
         with:
           path: web/dist
