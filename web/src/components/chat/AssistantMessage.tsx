@@ -37,6 +37,7 @@ export default function AssistantMessage({
   branchIdx = 1,
   onBranchChange,
   onOpenArtifact,
+  modelName,
 }: {
   content: string;
   pending: boolean;
@@ -44,6 +45,8 @@ export default function AssistantMessage({
   branchIdx?: number;
   onBranchChange?: (idx: number) => void;
   onOpenArtifact?: (a: ArtifactData) => void;
+  /** which model answered, e.g. "자동 · Groq"; wired to the server data later */
+  modelName?: string;
 }) {
   const body: ReactNode[] = splitThink(content).map((p, i) =>
     p.kind === "think" ? <Thinking key={i} text={p.text} /> : <Markdown key={i} text={p.text} onOpenArtifact={onOpenArtifact} />,
@@ -55,6 +58,7 @@ export default function AssistantMessage({
       ) : (
         pending && <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-muted" aria-label="응답 중" />
       )}
+      {content && !pending && modelName && <span className="text-xs text-muted">{modelName}</span>}
       {branches > 1 && <BranchSwitcher idx={branchIdx} total={branches} onChange={(n) => onBranchChange?.(n)} />}
       {content && (
         <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">

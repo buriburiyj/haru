@@ -1,8 +1,10 @@
 import { useState } from "react";
 import { TempChatToggle } from "../temp/TempChat";
+import ConfirmDialog from "../confirm/ConfirmDialog";
 
-export default function TopBar({ title, onMenu }: { title: string; onMenu: () => void }) {
+export default function TopBar({ title, onMenu, onDelete }: { title: string; onMenu: () => void; onDelete?: () => void }) {
   const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const item = "block w-full px-3 py-2 text-left text-sm hover:bg-surface-2";
   return (
     <div className="flex items-center gap-2 border-b border-line bg-bg px-3 py-2">
@@ -24,7 +26,7 @@ export default function TopBar({ title, onMenu }: { title: string; onMenu: () =>
           <div className="absolute left-0 top-full z-10 mt-1 w-44 overflow-hidden rounded-lg border border-line bg-surface py-1 text-fg">
             <button type="button" className={item} onClick={() => setOpen(false)}>이름 변경</button>
             <button type="button" className={item} onClick={() => setOpen(false)}>프로젝트로 이동</button>
-            <button type="button" className={`${item} text-danger`} onClick={() => setOpen(false)}>삭제</button>
+            <button type="button" className={`${item} text-danger`} onClick={() => { setOpen(false); setConfirming(true); }}>삭제</button>
           </div>
         )}
       </div>
@@ -32,6 +34,17 @@ export default function TopBar({ title, onMenu }: { title: string; onMenu: () =>
       <button type="button" className="rounded-md px-3 py-1 text-sm text-fg hover:bg-surface-2">
         내보내기
       </button>
+      {confirming && (
+        <ConfirmDialog
+          title="이 채팅을 삭제할까요?"
+          message="삭제하면 되돌릴 수 없습니다."
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            setConfirming(false);
+            onDelete?.();
+          }}
+        />
+      )}
     </div>
   );
 }

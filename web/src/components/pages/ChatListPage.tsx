@@ -1,31 +1,45 @@
 import { useState } from "react";
 import PageShell from "./PageShell";
+import ConfirmDialog from "../confirm/ConfirmDialog";
+import type { ChatListItem } from "./types";
 
-type Kind = "채팅" | "Code" | "Cowork";
-type Chat = { id: number; title: string; kind: Kind; ago: string; archived?: boolean };
-
-const CHATS: Chat[] = [
-  { id: 1, title: "여행 일정 정리", kind: "채팅", ago: "방금" },
-  { id: 2, title: "로그인 버그 수정", kind: "Code", ago: "3시간 전" },
-  { id: 3, title: "주간 보고서 초안", kind: "Cowork", ago: "3시간 전" },
-  { id: 4, title: "레시피 추천", kind: "채팅", ago: "어제" },
-  { id: 5, title: "API 서버 리팩터링", kind: "Code", ago: "어제" },
-  { id: 6, title: "회의록 요약", kind: "Cowork", ago: "3일 전" },
-  { id: 7, title: "영어 이메일 번역", kind: "채팅", ago: "3일 전", archived: true },
-  { id: 8, title: "독서 목록 정리", kind: "채팅", ago: "3일 전", archived: true },
+// Sample rows, used only when the parent passes no `chats`.
+const SAMPLE_CHATS: ChatListItem[] = [
+  { id: "1", title: "여행 일정 정리", kind: "채팅", when: "방금" },
+  { id: "2", title: "로그인 버그 수정", kind: "Code", when: "3시간 전" },
+  { id: "3", title: "주간 보고서 초안", kind: "Cowork", when: "3시간 전" },
+  { id: "4", title: "레시피 추천", kind: "채팅", when: "어제" },
+  { id: "5", title: "API 서버 리팩터링", kind: "Code", when: "어제" },
+  { id: "6", title: "회의록 요약", kind: "Cowork", when: "3일 전" },
+  { id: "7", title: "영어 이메일 번역", kind: "채팅", when: "3일 전", archived: true },
+  { id: "8", title: "독서 목록 정리", kind: "채팅", when: "3일 전", archived: true },
 ];
 
 const FILTERS = ["전체", "채팅", "Code", "Cowork", "즉시 보관"] as const;
 type Filter = (typeof FILTERS)[number];
 
-export default function ChatListPage({ onClose }: { onClose: () => void }) {
+export default function ChatListPage({
+  onClose,
+  chats = SAMPLE_CHATS,
+  onDelete,
+  onOpen,
+}: {
+  onClose: () => void;
+  chats?: ChatListItem[];
+  /** called only after the user confirms in the confirmation window */
+  onDelete?: (ids: string[]) => void;
+  onOpen?: (id: string) => void;
+}) {
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<Filter>("전체");
   const [selecting, setSelecting] = useState(false);
-  const [selected, setSelected] = useState<number[]>([]);
+  const [selected, setSelected] = useState<string[]>([]);
   const [confirming, setConfirming] = useState(false);
+  // when the parent gives no onDelete (sample mode) deleted rows are just hidden locally
+  const [removed, setRemoved] = useState<string[]>([]);
 
-  const rows = CHATS.filter((c) => {
+  const rows = chats.filter((c) => {
+    if (removed.includes(c.id)) return false;
     if (filter === "즉시 보관" ? !c.archived : filter !== "전체" && c.kind !== filter) return false;
     return c.title.toLowerCase().includes(query.trim().toLowerCase());
   });
@@ -35,7 +49,7 @@ export default function ChatListPage({ onClose }: { onClose: () => void }) {
     setSelected([]);
     setConfirming(false);
   };
-  const toggleRow = (id: number) => {
+  const toggleRow = (id: string) => {
     setConfirming(false);
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
   };
@@ -85,8 +99,8 @@ export default function ChatListPage({ onClose }: { onClose: () => void }) {
         {rows.map((c) => (
           <li key={c.id}>
             <div
-              role={selecting ? "button" : undefined}
-              onClick={selecting ? () => toggleRow(c.id) : undefined}
+              role="button"
+              onClick={selecting ? () => toggleRow(c.id) : () => onOpen?.(c.id)}
               className="flex min-h-11 items-center gap-3 py-3"
             >
               {selecting && (
@@ -100,7 +114,7 @@ export default function ChatListPage({ onClose }: { onClose: () => void }) {
                 />
               )}
               <span className="min-w-0 flex-1 truncate">{c.title}</span>
-              <span className="shrink-0 text-sm text-muted">{c.ago}</span>
+              <span className="shrink-0 text-sm text-muted">{c.when}</span>
             </div>
           </li>
         ))}
@@ -109,7 +123,6 @@ export default function ChatListPage({ onClose }: { onClose: () => void }) {
         <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-surface px-4 py-3 md:left-64">
           <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
             <span className="mr-auto text-sm">{selected.length}개 선택</span>
-            {confirming && <span className="text-sm text-danger">삭제하려면 한 번 더 누르세요</span>}
             <button
               type="button"
               disabled={selected.length === 0}
@@ -120,6 +133,20 @@ export default function ChatListPage({ onClose }: { onClose: () => void }) {
             </button>
           </div>
         </div>
+      )}
+      {confirming && (
+        <ConfirmDialog
+          title={`채팅 ${selected.length}개를 삭제할까요?`}
+          message="삭제하면 되돌릴 수 없습니다."
+          onCancel={() => setConfirming(false)}
+          onConfirm={() => {
+            setConfirming(false);
+            if (onDelete) onDelete(selected);
+            else setRemoved((r) => [...r, ...selected]);
+            setSelected([]);
+            setSelecting(false);
+          }}
+        />
       )}
     </PageShell>
   );

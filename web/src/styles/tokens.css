@@ -56,3 +56,7 @@
 ::-webkit-scrollbar-thumb { background: var(--haru-scrollbar); border-radius: 9999px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--haru-scrollbar-hover); }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* font size setting (Settings -> 일반 -> 글꼴 크기); Tailwind sizes are rem based, so the whole UI scales */
+html[data-fontsize="small"] { font-size: 14px; }
+html[data-fontsize="large"] { font-size: 18px; }

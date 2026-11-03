@@ -20,9 +20,13 @@ export type ChatViewProps = {
   /** the <Composer/> element, pinned to the bottom */
   composer: ReactNode;
   onMenu: () => void;
+  /** model name per message index (same order as msgs), e.g. "자동 · Groq"; optional */
+  modelNames?: (string | undefined)[];
+  /** called only after the user confirms deletion of this chat */
+  onDelete?: () => void;
 };
 
-export default function ChatView({ msgs, busy, notice, title, modelLabel, composer, onMenu }: ChatViewProps) {
+export default function ChatView({ msgs, busy, notice, title, modelLabel, composer, onMenu, modelNames, onDelete }: ChatViewProps) {
   const endRef = useRef<HTMLDivElement>(null);
   const [artifact, setArtifact] = useState<ArtifactData | null>(null);
   // Example request for the card; shown only with ?demo=permission (or permission-delete). Real requests come from the server later.
@@ -35,7 +39,7 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
   return (
     <div className="flex h-full bg-bg text-fg">
     <div className="flex min-w-0 flex-1 flex-col">
-      <TopBar title={title} onMenu={onMenu} />
+      <TopBar title={title} onMenu={onMenu} onDelete={onDelete} />
       <TempChatBanner />
       <CopyToast />
       <div className="relative min-h-0 flex-1">
@@ -52,6 +56,7 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
                 content={m.content}
                 pending={busy && i === msgs.length - 1}
                 onOpenArtifact={setArtifact}
+                modelName={modelNames?.[i]}
               />
             ),
           )}

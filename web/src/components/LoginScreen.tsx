@@ -1,36 +1,73 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Logo from "./Logo";
+import { isRegisteredDevice, loginErrorText, markRegisteredDevice, type LoginError } from "./auth/loginErrors";
 
 export default function LoginScreen(props: {
-  error: string;
-  onSignIn: () => void;
-  onRegister: (setupToken: string) => void;
+  /** a ready message, or a kind ({kind: "network" | "token" | "cancelled" | "server"}) */
+  error: string | LoginError;
+  onSignIn: () => void | Promise<void>;
+  onRegister: (setupToken: string) => void | Promise<void>;
 }) {
+  const registered = isRegisteredDevice();
+  const [showRegister, setShowRegister] = useState(!registered);
   const [token, setToken] = useState("");
+  const [busy, setBusy] = useState(false);
+  // The parent reports failure only through the `error` prop, so keep the latest value to read after the call.
+  const errorRef = useRef(props.error);
+  errorRef.current = props.error;
+
+  const run = async (fn: () => void | Promise<void>) => {
+    setBusy(true);
+    try {
+      await fn();
+      await new Promise((r) => setTimeout(r, 0)); // let the parent render a failure first
+      const failed = errorRef.current !== "" && errorRef.current !== undefined;
+      if (!failed) markRegisteredDevice(); // success: this device has a passkey now
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const message = props.error ? loginErrorText(props.error) : "";
+  const btn = "min-h-11 rounded-xl px-5 text-base disabled:opacity-50";
+
   return (
     <main className="flex h-full flex-col items-center justify-center gap-4 px-4">
-      <Logo size={48} />
+      <Logo size={64} />
       <p className="text-xl">패스키로 로그인하세요</p>
-      <button className="rounded-xl bg-accent px-5 py-2 text-accent-fg" onClick={props.onSignIn}>
+      <button type="button" disabled={busy} className={`${btn} bg-accent text-accent-fg`} onClick={() => run(props.onSignIn)}>
         로그인
       </button>
-      <input
-        className="w-full max-w-sm rounded-xl border border-line bg-surface px-4 py-2"
-        type="password"
-        placeholder="설정 토큰 (처음 등록할 때만)"
-        aria-label="설정 토큰"
-        value={token}
-        onChange={(e) => setToken(e.target.value)}
-      />
-      <button
-        className="rounded-xl border border-line px-5 py-2"
-        onClick={() => props.onRegister(token)}
-      >
-        이 기기 등록
-      </button>
-      {props.error && (
-        <p className="text-sm text-danger" role="alert">
-          {props.error}
+
+      {!showRegister ? (
+        <button type="button" onClick={() => setShowRegister(true)} className="min-h-11 px-2 text-sm text-muted underline">
+          다른 기기 등록
+        </button>
+      ) : (
+        <div className="flex w-full max-w-sm flex-col items-center gap-3">
+          <input
+            className="min-h-11 w-full rounded-xl border border-line bg-surface px-4 text-fg outline-none placeholder:text-muted focus:border-accent"
+            type="password"
+            placeholder="설정 토큰 (처음 등록할 때만)"
+            aria-label="설정 토큰"
+            autoComplete="off"
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={busy}
+            className={`${btn} border border-line text-fg`}
+            onClick={() => run(() => props.onRegister(token))}
+          >
+            이 기기 등록
+          </button>
+        </div>
+      )}
+
+      {message && (
+        <p className="max-w-sm text-center text-sm text-danger" role="alert">
+          {message}
         </p>
       )}
     </main>

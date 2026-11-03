@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import CustomizePanel from "../customize/CustomizePanel";
 import type { Kind } from "../customize/sample";
+import { FONT_SIZES, THEMES, getFontSize, getTheme, setFontSize, setTheme } from "./appearance";
 
 type Row =
-  | { label: string; kind: "seg"; options: string[]; initial?: number; theme?: boolean }
+  | { label: string; kind: "seg"; options: string[]; initial?: number; store?: "theme" | "fontSize" }
   | { label: string; kind: "toggle"; on?: boolean }
   | { label: string; kind: "value"; value: string }
   | { label: string; kind: "button"; text: string; danger?: boolean };
@@ -20,10 +21,10 @@ const PAGES: Page[] = [
     id: "general",
     title: "일반",
     rows: [
-      { label: "테마", kind: "seg", options: ["시스템", "라이트", "다크"], theme: true },
+      { label: "테마", kind: "seg", options: ["시스템", "라이트", "다크"], store: "theme" },
       { label: "인터페이스 글꼴", kind: "seg", options: ["기본", "시스템"] },
       { label: "응답 글꼴", kind: "seg", options: ["기본", "시스템", "고정폭"] },
-      { label: "대화 글자 크기", kind: "seg", options: ["작게", "보통", "크게"], initial: 1 },
+      { label: "글꼴 크기", kind: "seg", options: ["작게", "보통", "크게"], initial: 1, store: "fontSize" },
       { label: "대화 너비", kind: "seg", options: ["좁게", "기본", "넓게"], initial: 1 },
       { label: "모션", kind: "seg", options: ["시스템", "줄이기", "켜기"] },
       { label: "받아쓰기 언어", kind: "value", value: "한국어" },
@@ -146,10 +147,14 @@ const GROUPS: { name: string; ids: string[]; macOnly?: boolean }[] = [
   { name: "사용자 지정", ids: ["skills", "connectors", "plugins"] },
 ];
 
-const THEME_VALUES = [undefined, "light", "dark"] as const;
 
 function Control({ row }: { row: Row }) {
-  const [sel, setSel] = useState(row.kind === "seg" ? row.initial ?? 0 : 0);
+  const [sel, setSel] = useState(() => {
+    if (row.kind !== "seg") return 0;
+    if (row.store === "theme") return THEMES.indexOf(getTheme());
+    if (row.store === "fontSize") return FONT_SIZES.indexOf(getFontSize());
+    return row.initial ?? 0;
+  });
   const [on, setOn] = useState(row.kind === "toggle" ? !!row.on : false);
 
   if (row.kind === "seg") {
@@ -161,11 +166,8 @@ function Control({ row }: { row: Row }) {
             type="button"
             onClick={() => {
               setSel(i);
-              if (row.theme) {
-                const v = THEME_VALUES[i];
-                if (v) document.documentElement.dataset.theme = v;
-                else delete document.documentElement.dataset.theme;
-              }
+              if (row.store === "theme") setTheme(THEMES[i]);
+              if (row.store === "fontSize") setFontSize(FONT_SIZES[i]);
             }}
             className={`rounded-md px-3 py-1 text-sm ${
               sel === i ? "bg-accent text-accent-fg" : "text-muted"
