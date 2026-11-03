@@ -20,6 +20,8 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 - server/ skeleton (FastAPI /health, SSE /chat, router, storage queue, passkey stubs). Only /health and 401 checked; Groq/NVIDIA/GitHub commit/WebAuthn untested.
 - web/ empty PWA + .github/workflows/pages.yml. Build passes.
 
+- [창B] Stage 1 server DONE (2026-11-03, be59b0c; NEEDS Hostless deploy): Groq default model is now openai/gpt-oss-20b (llama-3.1-8b-instant was removed by Groq, which made every chat fall to NVIDIA). The "Switching to ..." text is gone from answers; the done event carries model and title. API: GET /models, GET /chats?q=, GET /chats/{id}, POST /chats/{id}/rename, DELETE /chats/{id} (call only after UI confirm). One commit per answer holds the chat file + .agent/chats/index.json. Types are in web/src/api.ts. useAuth now reports LoginError kinds via classifyLoginError. Env: optional GITHUB_BRANCH (default main).
+
 ## Web UI skeleton (2026-11-02)
 - Foundation done (f020de6): Tailwind v4 (@tailwindcss/vite), Pretendard bundled via npm `pretendard` (no CDN), web/src/styles/tokens.css (TEMP neutral colors, accent #DA7756), components/Logo.tsx (temp SVG, replace with icon.png later).
 - Old App.tsx logic was ABSORBED, not dropped: passkey login/register -> hooks/useAuth.ts; SSE chat send/stream/notice -> hooks/useChat.ts; login form -> components/LoginScreen.tsx; api.ts untouched. web/src/styles.css deleted (replaced by index.css + tokens.css; its .bubble/.home/.prompt classes are gone, superseded by Tailwind components).
