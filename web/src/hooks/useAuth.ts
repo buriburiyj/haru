@@ -1,22 +1,26 @@
 import { useEffect, useState } from "react";
 import { hasSession, login, register } from "../api";
+import { classifyLoginError, LoginError } from "../components/auth/loginErrors";
 
-// Logic moved unchanged from the former App.tsx (passkey login / register).
+// Passkey login / register state. Failures are reported as a LoginError kind (network, token, cancelled, server).
 export function useAuth() {
   const [authed, setAuthed] = useState<boolean | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<string | LoginError>("");
 
   useEffect(() => {
     hasSession().then(setAuthed);
   }, []);
 
-  const run = async (fn: () => Promise<void>) => {
+  const run = async (fn: () => Promise<void>, isRegister: boolean) => {
     setError("");
     try {
       await fn();
       setAuthed(true);
-    } catch {
-      setError("인증에 실패했어요. 다시 시도해 주세요.");
+    } catch (err) {
+      let kind = classifyLoginError(err);
+      // A 401 on login means the passkey was not accepted, not a wrong setup token.
+      if (!isRegister && kind === "token") kind = "server";
+      setError({ kind });
     }
   };
 
@@ -24,7 +28,7 @@ export function useAuth() {
     authed,
     error,
     setAuthed,
-    signIn: () => run(login),
-    registerDevice: (setupToken: string) => run(() => register(setupToken)),
+    signIn: () => run(login, false),
+    registerDevice: (setupToken: string) => run(() => register(setupToken), true),
   };
 }

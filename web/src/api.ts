@@ -1,6 +1,38 @@
 const API = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
 
-export type Msg = { role: "user" | "assistant"; content: string };
+// ---- API types (server contract; see server/main.py) ----
+
+/** One chat message. `model` is set by the server on assistant messages (id of the model that answered). */
+export type Msg = { role: "user" | "assistant"; content: string; model?: string };
+
+/** "auto" lets the server pick; "easy"/"hard" force the level; otherwise a model id from GET /models. */
+export type ChatMode = "auto" | "easy" | "hard" | (string & {});
+
+/** POST /chat body. Send the full history; the server saves one commit per answer. */
+export type ChatRequest = { messages: Msg[]; chat_id?: string; mode?: ChatMode };
+
+/** SSE events of POST /chat, in order: delta*, (notice)?, done. */
+export type ChatEvent =
+  | { kind: "delta"; text: string } // answer text chunk
+  | { kind: "notice"; text: string } // user-facing status, e.g. "All models unavailable"
+  | { kind: "done"; chatId: string; saved: boolean; model: string | null; title: string | null };
+
+/** Entry of GET /chats (newest first). `created`/`updated` are unix seconds. */
+export type ChatMeta = { id: string; title: string; created: number; updated: number; preview: string };
+
+/** GET /chats/{id} */
+export type ChatDetail = { id: string; title: string; messages: Msg[] };
+
+/** Entry of GET /models. */
+export type ModelInfo = { id: string; label: string; provider: "groq" | "codex" | "nvidia" };
+export type ModelList = { default: "auto"; models: ModelInfo[] };
+
+/** Thrown for non-2xx responses. The message is "http <status>" (login errors are classified from it). */
+export class HttpError extends Error {
+  constructor(public status: number) {
+    super(`http ${status}`);
+  }
+}
 
 const b64uToBuf = (s: string): ArrayBuffer => {
   const pad = "=".repeat((4 - (s.length % 4)) % 4);
@@ -68,7 +100,9 @@ export async function hasSession(): Promise<boolean> {
 }
 
 export async function login(): Promise<void> {
-  const o = await (await post("/auth/login/options")).json();
+  const ro = await post("/auth/login/options");
+  if (!ro.ok) throw new HttpError(ro.status);
+  const o = await ro.json();
   o.challenge = b64uToBuf(o.challenge);
   (o.allowCredentials ?? []).forEach((c: any) => (c.id = b64uToBuf(c.id)));
   const challengeId: string = o.challenge_id;
@@ -86,14 +120,14 @@ export async function login(): Promise<void> {
       userHandle: bufToB64u(res.userHandle),
     },
   }, { "X-Challenge-Id": challengeId });
-  if (!r.ok) throw new Error("login failed");
+  if (!r.ok) throw new HttpError(r.status);
   await takeToken(r);
 }
 
 export async function register(setupToken: string): Promise<void> {
   const h: Record<string, string> = setupToken ? { "x-setup-token": setupToken } : {};
   const ro = await post("/auth/register/options", undefined, h);
-  if (!ro.ok) throw new Error("register not allowed");
+  if (!ro.ok) throw new HttpError(ro.status);
   const o = await ro.json();
   o.challenge = b64uToBuf(o.challenge);
   o.user.id = b64uToBuf(o.user.id);
@@ -115,23 +149,19 @@ export async function register(setupToken: string): Promise<void> {
     },
     { ...h, "X-Challenge-Id": challengeId },
   );
-  if (!r.ok) throw new Error("register failed");
+  if (!r.ok) throw new HttpError(r.status);
   await takeToken(r);
 }
 
-export type ChatEvent =
-  | { kind: "delta"; text: string }
-  | { kind: "notice"; text: string }
-  | { kind: "done"; chatId: string; saved: boolean };
-
 /** POST /chat and yield parsed SSE events. Throws "unauthorized" on 401. */
-export async function* chat(messages: Msg[], chatId?: string): AsyncGenerator<ChatEvent> {
-  const r = await post("/chat", { messages, chat_id: chatId });
+export async function* chat(messages: Msg[], chatId?: string, mode: ChatMode = "auto"): AsyncGenerator<ChatEvent> {
+  const body: ChatRequest = { messages, chat_id: chatId, mode };
+  const r = await post("/chat", body);
   if (r.status === 401) {
     setToken("");
     throw new Error("unauthorized");
   }
-  if (!r.ok || !r.body) throw new Error(`http ${r.status}`);
+  if (!r.ok || !r.body) throw new HttpError(r.status);
   const reader = r.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
@@ -146,15 +176,43 @@ export async function* chat(messages: Msg[], chatId?: string): AsyncGenerator<Ch
       const ev = /^event: (.*)$/m.exec(block)?.[1];
       const data = /^data: (.*)$/m.exec(block)?.[1];
       if (!ev || data === undefined) continue;
-      const text = JSON.parse(data) as string;
+      const parsed = JSON.parse(data);
       if (ev === "done") {
-        const d = JSON.parse(text);
-        yield { kind: "done", chatId: d.chat_id, saved: d.saved };
+        yield { kind: "done", chatId: parsed.chat_id, saved: parsed.saved, model: parsed.model ?? null, title: parsed.title ?? null };
       } else if (ev === "delta") {
-        yield { kind: "delta", text };
+        yield { kind: "delta", text: parsed as string };
       } else if (ev === "notice") {
-        yield { kind: "notice", text };
+        yield { kind: "notice", text: parsed as string };
       }
     }
   }
 }
+
+// ---- chat list / models (all need a session; 401 clears the stored token) ----
+
+async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const r = await fetch(`${API}${path}`, {
+    method,
+    headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }), ...authHeader() },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (r.status === 401) {
+    setToken("");
+    throw new Error("unauthorized");
+  }
+  if (!r.ok) throw new HttpError(r.status);
+  return r.json() as Promise<T>;
+}
+
+/** GET /chats?q= — newest first; `q` matches title and preview. */
+export const listChats = (q = "") =>
+  api<{ chats: ChatMeta[] }>("GET", `/chats${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((d) => d.chats);
+/** GET /chats/{id} — HttpError(404) if missing. */
+export const getChat = (id: string) => api<ChatDetail>("GET", `/chats/${encodeURIComponent(id)}`);
+/** POST /chats/{id}/rename */
+export const renameChat = (id: string, title: string) =>
+  api<{ ok: true }>("POST", `/chats/${encodeURIComponent(id)}/rename`, { title });
+/** DELETE /chats/{id} — call only after the user confirmed in the UI. */
+export const deleteChat = (id: string) => api<{ ok: true }>("DELETE", `/chats/${encodeURIComponent(id)}`);
+/** GET /models */
+export const getModels = () => api<ModelList>("GET", "/models");

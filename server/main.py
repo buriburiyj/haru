@@ -97,7 +97,7 @@ async def require_session(request: Request, call_next):
 # Added after require_session so CORS wraps it: 401 responses still carry CORS headers.
 app.add_middleware(
     CORSMiddleware, allow_origins=[ORIGIN], allow_credentials=True,
-    allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Setup-Token", "X-Challenge-Id", "Authorization"],
+    allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Setup-Token", "X-Challenge-Id", "Authorization"],
 )
 
 
@@ -234,28 +234,108 @@ async def login_verify(request: Request):
 
 
 # ---- chat ----
-def _sse(event: str, data: str) -> str:
+MAX_MESSAGES = 200
+MAX_CHARS = 200_000
+
+
+def _sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _clean_messages(raw) -> list:
+    """Keep only role/content strings and cap the size (server memory stays small)."""
+    out, total = [], 0
+    for m in (raw or [])[-MAX_MESSAGES:]:
+        if not isinstance(m, dict) or m.get("role") not in ("user", "assistant", "system"):
+            continue
+        content = m.get("content")
+        if not isinstance(content, str):
+            continue
+        total += len(content)
+        if total > MAX_CHARS:
+            break
+        item = {"role": m["role"], "content": content}
+        if isinstance(m.get("model"), str):
+            item["model"] = m["model"]
+        out.append(item)
+    return out
+
+
+@app.get("/models")
+async def models():
+    return {"default": "auto", "models": router.models()}
 
 
 @app.post("/chat")
 async def chat(request: Request):
     body = await request.json()
-    messages = body.get("messages") or []
+    messages = _clean_messages(body.get("messages"))
     chat_id = body.get("chat_id") or secrets.token_hex(8)
     mode = body.get("mode", "auto")
-    if mode not in ("auto", "easy", "hard"):
+    if not isinstance(mode, str):
         mode = "auto"
+    if mode not in ("auto", "easy", "hard") and not any(m["id"] == mode for m in router.models()):
+        mode = "auto"
+    # Only model-visible fields go to the providers.
+    prompt = [{"role": m["role"], "content": m["content"]} for m in messages]
 
     async def gen():
-        parts = []
-        async for kind, text in router.route(messages, mode):
-            if kind == "delta":
+        parts, model = [], None
+        async for kind, text in router.route(prompt, mode):
+            if kind == "model":
+                model = text  # internal: reported in the done event only
+            elif kind == "delta":
                 parts.append(text)
-            yield _sse(kind, text)
-        full = messages + [{"role": "assistant", "content": "".join(parts)}]
-        saved = await storage.save_chat(chat_id, {"id": chat_id, "messages": full})
-        yield _sse("done", json.dumps({"chat_id": chat_id, "saved": saved}))
+                yield _sse("delta", text)
+            else:
+                yield _sse("notice", text)
+        saved, title, cid = False, None, chat_id
+        if parts:  # nothing to save if no model answered
+            full = messages + [{"role": "assistant", "content": "".join(parts), "model": model}]
+            saved, meta = await storage.save_chat(chat_id, {"messages": full})
+            title, cid = meta["title"], meta["id"]
+        yield _sse("done", {"chat_id": cid, "saved": saved, "model": model, "title": title})
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _store_error(e: Exception):
+    log.warning("store request failed: %s", type(e).__name__)
+    return JSONResponse({"detail": "storage unavailable"}, status_code=502)
+
+
+@app.get("/chats")
+async def chats(q: str = "", limit: int = 100):
+    try:
+        return {"chats": await storage.list_chats(q, max(1, min(limit, 500)))}
+    except Exception as e:
+        return _store_error(e)
+
+
+@app.get("/chats/{chat_id}")
+async def chat_detail(chat_id: str):
+    try:
+        d = await storage.get_chat(chat_id)
+    except Exception as e:
+        return _store_error(e)
+    return d if d is not None else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.post("/chats/{chat_id}/rename")
+async def chat_rename(chat_id: str, request: Request):
+    title = str((await request.json()).get("title", ""))
+    try:
+        ok = await storage.rename_chat(chat_id, title)
+    except Exception as e:
+        return _store_error(e)
+    return {"ok": True} if ok else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.delete("/chats/{chat_id}")
+async def chat_delete(chat_id: str):
+    try:
+        ok = await storage.delete_chat(chat_id)
+    except Exception as e:
+        return _store_error(e)
+    return {"ok": True} if ok else JSONResponse({"detail": "not found"}, status_code=404)

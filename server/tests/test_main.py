@@ -202,28 +202,74 @@ class ReadOnlyDiskTest(unittest.TestCase):
 
 
 class ChatTest(unittest.TestCase):
-    def test_chat_streams_and_saves(self):
+    def _post(self, body, fake_route=None):
         saved = {}
 
-        async def fake_route(messages, mode):
+        async def default_route(messages, mode):
+            yield "model", "m1"
             yield "delta", "hel"
             yield "delta", "lo"
 
         async def fake_save(chat_id, data):
             saved.update(data)
-            return True
+            return True, {"id": chat_id, "title": "T"}
 
         orig = (main.router.route, main.storage.save_chat)
-        main.router.route, main.storage.save_chat = fake_route, fake_save
+        main.router.route, main.storage.save_chat = fake_route or default_route, fake_save
         try:
-            r = authed_client().post(
-                "/chat", json={"chat_id": "t1", "messages": [{"role": "user", "content": "hi"}]})
+            r = authed_client().post("/chat", json=body)
         finally:
             main.router.route, main.storage.save_chat = orig
+        return r, saved
+
+    def test_chat_streams_saves_and_reports_model_only_in_done(self):
+        r, saved = self._post({"chat_id": "t1", "messages": [{"role": "user", "content": "hi"}]})
         self.assertEqual(r.status_code, 200)
         self.assertIn("event: delta", r.text)
-        self.assertIn("event: done", r.text)
-        self.assertEqual(saved["messages"][-1], {"role": "assistant", "content": "hello"})
+        self.assertNotIn("Switching", r.text)
+        done = json.loads(r.text.split("event: done\ndata: ")[1].split("\n")[0])
+        self.assertEqual(done, {"chat_id": "t1", "saved": True, "model": "m1", "title": "T"})
+        self.assertEqual(saved["messages"][-1], {"role": "assistant", "content": "hello", "model": "m1"})
+
+    def test_no_answer_is_not_saved(self):
+        async def none_route(messages, mode):
+            yield "notice", "All models unavailable"
+
+        r, saved = self._post({"chat_id": "t2", "messages": [{"role": "user", "content": "hi"}]}, none_route)
+        self.assertEqual(saved, {})
+        self.assertIn('"saved": false', r.text)
+
+    def test_messages_are_sanitized(self):
+        seen = {}
+
+        async def spy(messages, mode):
+            seen["m"], seen["mode"] = messages, mode
+            yield "delta", "x"
+
+        self._post({"messages": [{"role": "user", "content": "a", "extra": 1}, {"role": "evil", "content": "b"},
+                                 {"role": "user", "content": 5}], "mode": "bogus"}, spy)
+        self.assertEqual(seen["m"], [{"role": "user", "content": "a"}])
+        self.assertEqual(seen["mode"], "auto")
+
+    def test_models_and_chats_endpoints(self):
+        c = authed_client()
+        self.assertEqual(c.get("/models").json()["default"], "auto")
+
+        async def fake_list(q, limit):
+            return [{"id": "x"}]
+
+        async def fake_get(cid):
+            return None
+
+        orig = (main.storage.list_chats, main.storage.get_chat)
+        main.storage.list_chats, main.storage.get_chat = fake_list, fake_get
+        try:
+            self.assertEqual(c.get("/chats").json(), {"chats": [{"id": "x"}]})
+            self.assertEqual(c.get("/chats/nope").status_code, 404)
+        finally:
+            main.storage.list_chats, main.storage.get_chat = orig
+        self.assertEqual(TestClient(main.app).get("/chats").status_code, 401)
+        self.assertEqual(TestClient(main.app).delete("/chats/x").status_code, 401)
 
 
 if __name__ == "__main__":
