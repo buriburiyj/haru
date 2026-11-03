@@ -3,6 +3,7 @@
 Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 
 ## 진행 중
+- [창A] 홈 화면 앱 준비 완료(빌드 통과, 실기기 확인 전): manifest(public/manifest.webmanifest), 아이콘 public/icons/ (180, 192, maskable 192), apple-touch-icon을 index.html에 연결, safe-area 여백(styles/mobile.css, #root), 오프라인 안내(components/OfflineNotice.tsx, 서비스 워커 없음). 512 아이콘은 원본이 ~194px라 만들지 않음(고해상도 원본 필요).
 - [창A] 화면 다듬기 완료(빌드 통과, 브라우저 확인 전): 답변 아래 모델 이름 자리(AssistantMessage modelName / ChatView modelNames), 로그인 화면(등록한 기기는 토큰 칸 숨김 + '다른 기기 등록', 오류 4종 components/auth/loginErrors.ts — useAuth가 아직 kind를 안 넘겨서 지금은 일반 문구), 설정 테마·글꼴 크기 localStorage 저장(settings/appearance.ts), 채팅 목록 props형(chats/onDelete/onOpen) + 모든 삭제는 ConfirmDialog 경유
 - [창A] 1단계 화면 부분: 완료, 브라우저 확인 전 (2026-11-03)
 - [창A] 화면 추가 완료(서버 없이, 임시 데이터): 채팅 목록/프로젝트/아티팩트 페이지, 임시 채팅 토글, 권한 요청 카드. 데모: URL에 ?demo=permission (또는 permission-delete, projects)

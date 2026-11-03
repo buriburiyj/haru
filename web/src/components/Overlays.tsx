@@ -7,6 +7,7 @@ import ProjectsPage from "./pages/ProjectsPage";
 import ArtifactsPage from "./pages/ArtifactsPage";
 import NewProjectDialog from "./pages/NewProjectDialog";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
+import OfflineNotice from "./OfflineNotice";
 
 export default function Overlays({ isMacApp = false }: { isMacApp?: boolean }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -72,6 +73,7 @@ export default function Overlays({ isMacApp = false }: { isMacApp?: boolean }) {
 
   return (
     <>
+      <OfflineNotice />
       {settingsOpen && <SettingsDialog isMacApp={isMacApp} onClose={() => setSettingsOpen(false)} />}
       {searchOpen && <SearchDialog onClose={() => setSearchOpen(false)} />}
       {customizeOpen && <CustomizeDialog onClose={() => setCustomizeOpen(false)} />}

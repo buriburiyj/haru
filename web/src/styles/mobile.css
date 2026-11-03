@@ -20,7 +20,12 @@ html {
   -webkit-text-size-adjust: 100%;
   overscroll-behavior: none;
 }
-body {
+/* iPhone notch and home bar: padding on #root (its height follows the visible area, see useVisualViewportHeight),
+   so the input box is never hidden behind the home bar. */
+#root {
+  box-sizing: border-box;
   padding-top: env(safe-area-inset-top);
+  padding-right: env(safe-area-inset-right);
   padding-bottom: env(safe-area-inset-bottom);
+  padding-left: env(safe-area-inset-left);
 }
