@@ -14,19 +14,53 @@ const bufToB64u = (b: ArrayBuffer | null): string | null => {
   return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 };
 
+const TOKEN_KEY = "haru_token";
+
+function getToken(): string {
+  try {
+    return localStorage.getItem(TOKEN_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function setToken(t: string) {
+  try {
+    if (t) localStorage.setItem(TOKEN_KEY, t);
+    else localStorage.removeItem(TOKEN_KEY);
+  } catch {
+    /* storage unavailable: session lasts until reload via memory below */
+  }
+}
+
+function authHeader(): Record<string, string> {
+  const t = getToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+}
+
 async function post(path: string, body?: unknown, headers: Record<string, string> = {}) {
   return fetch(`${API}${path}`, {
     method: "POST",
-    credentials: "include",
-    headers: { "Content-Type": "application/json", ...headers },
+    headers: { "Content-Type": "application/json", ...authHeader(), ...headers },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+}
+
+async function takeToken(r: Response) {
+  const d = await r.json().catch(() => ({}));
+  if (!d.token) throw new Error("no token");
+  setToken(d.token);
+}
+
+export function logout() {
+  setToken("");
 }
 
 /** True if the session cookie is valid. */
 export async function hasSession(): Promise<boolean> {
   try {
-    const r = await fetch(`${API}/auth/me`, { credentials: "include" });
+    const r = await fetch(`${API}/auth/me`, { headers: authHeader() });
+    if (r.status === 401) setToken("");
     return r.ok;
   } catch {
     return false;
@@ -37,6 +71,8 @@ export async function login(): Promise<void> {
   const o = await (await post("/auth/login/options")).json();
   o.challenge = b64uToBuf(o.challenge);
   (o.allowCredentials ?? []).forEach((c: any) => (c.id = b64uToBuf(c.id)));
+  const challengeId: string = o.challenge_id;
+  delete o.challenge_id;
   const cred = (await navigator.credentials.get({ publicKey: o })) as PublicKeyCredential;
   const res = cred.response as AuthenticatorAssertionResponse;
   const r = await post("/auth/login/verify", {
@@ -49,8 +85,9 @@ export async function login(): Promise<void> {
       signature: bufToB64u(res.signature),
       userHandle: bufToB64u(res.userHandle),
     },
-  });
+  }, { "X-Challenge-Id": challengeId });
   if (!r.ok) throw new Error("login failed");
+  await takeToken(r);
 }
 
 export async function register(setupToken: string): Promise<void> {
@@ -61,6 +98,8 @@ export async function register(setupToken: string): Promise<void> {
   o.challenge = b64uToBuf(o.challenge);
   o.user.id = b64uToBuf(o.user.id);
   (o.excludeCredentials ?? []).forEach((c: any) => (c.id = b64uToBuf(c.id)));
+  const challengeId: string = o.challenge_id;
+  delete o.challenge_id;
   const cred = (await navigator.credentials.create({ publicKey: o })) as PublicKeyCredential;
   const res = cred.response as AuthenticatorAttestationResponse;
   const r = await post(
@@ -74,9 +113,10 @@ export async function register(setupToken: string): Promise<void> {
         attestationObject: bufToB64u(res.attestationObject),
       },
     },
-    h,
+    { ...h, "X-Challenge-Id": challengeId },
   );
   if (!r.ok) throw new Error("register failed");
+  await takeToken(r);
 }
 
 export type ChatEvent =
@@ -87,7 +127,10 @@ export type ChatEvent =
 /** POST /chat and yield parsed SSE events. Throws "unauthorized" on 401. */
 export async function* chat(messages: Msg[], chatId?: string): AsyncGenerator<ChatEvent> {
   const r = await post("/chat", { messages, chat_id: chatId });
-  if (r.status === 401) throw new Error("unauthorized");
+  if (r.status === 401) {
+    setToken("");
+    throw new Error("unauthorized");
+  }
   if (!r.ok || !r.body) throw new Error(`http ${r.status}`);
   const reader = r.body.getReader();
   const dec = new TextDecoder();

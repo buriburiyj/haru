@@ -3,6 +3,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import secrets
 import time
@@ -18,17 +19,18 @@ from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 import router
 import storage
 
+log = logging.getLogger("uvicorn.error")
+
 ORIGIN = "https://buriburiyj.github.io"
 RP_ID = "buriburiyj.github.io"
 RP_NAME = "Haru"
-COOKIE = "haru_session"
+CHALLENGE_TTL = 300
 SESSION_TTL = 60 * 60 * 24 * 30
 CRED_FILE = Path(os.environ.get("CRED_FILE", Path(__file__).parent / "credentials.json"))
 CRED_REMOTE = os.environ.get("CRED_REMOTE_PATH", ".agent/credentials.json")  # public keys only
 PUBLIC = {"/health", "/auth/register/options", "/auth/register/verify", "/auth/login/options", "/auth/login/verify"}
 
 app = FastAPI()
-_challenges: dict = {}  # purpose -> challenge bytes (single user)
 
 
 def _secret() -> bytes:
@@ -49,11 +51,45 @@ def _valid(tok: str) -> bool:
         return False
 
 
+def _bearer(request: Request) -> str:
+    h = request.headers.get("authorization", "")
+    return h[7:] if h.lower().startswith("bearer ") else ""
+
+
+def _session_ok(request: Request) -> bool:
+    return _valid(_bearer(request))
+
+
+def _new_session() -> str:
+    return _sign(int(time.time()) + SESSION_TTL)
+
+
+def _make_challenge_id(purpose: str, challenge: bytes) -> str:
+    """Stateless signed challenge (no server memory, no cookie)."""
+    raw = bytes_to_base64url(json.dumps(
+        {"p": purpose, "c": bytes_to_base64url(challenge), "e": int(time.time()) + CHALLENGE_TTL}).encode())
+    return f"{raw}.{hmac.new(_secret(), raw.encode(), hashlib.sha256).hexdigest()}"
+
+
+def _open_challenge_id(token: str, purpose: str):
+    """Return challenge bytes if the id is valid, unexpired and for this purpose, else None."""
+    try:
+        raw, sig = token.split(".", 1)
+        if not hmac.compare_digest(sig, hmac.new(_secret(), raw.encode(), hashlib.sha256).hexdigest()):
+            return None
+        d = json.loads(base64url_to_bytes(raw))
+        if d["p"] != purpose or d["e"] < time.time():
+            return None
+        return base64url_to_bytes(d["c"])
+    except Exception:
+        return None
+
+
 @app.middleware("http")
 async def require_session(request: Request, call_next):
     if request.method == "OPTIONS" or request.url.path in PUBLIC:
         return await call_next(request)
-    if not _valid(request.cookies.get(COOKIE, "")):
+    if not _session_ok(request):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)
 
@@ -61,7 +97,7 @@ async def require_session(request: Request, call_next):
 # Added after require_session so CORS wraps it: 401 responses still carry CORS headers.
 app.add_middleware(
     CORSMiddleware, allow_origins=[ORIGIN], allow_credentials=True,
-    allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Setup-Token"],
+    allow_methods=["GET", "POST"], allow_headers=["Content-Type", "X-Setup-Token", "X-Challenge-Id", "Authorization"],
 )
 
 
@@ -103,8 +139,8 @@ async def _load_remote_creds():
         if text:
             _cred_cache = json.loads(text)
             CRED_FILE.write_text(text)
-    except Exception:
-        pass  # fall back to the local file
+    except Exception as e:
+        log.warning("loading remote credentials failed: %s", type(e).__name__)  # fall back to local file
 
 
 async def _save_creds(creds: list):
@@ -112,46 +148,46 @@ async def _save_creds(creds: list):
     _cred_cache = creds
     text = json.dumps(creds)
     CRED_FILE.write_text(text)
-    await storage.commit_file(CRED_REMOTE, text, "update passkey credentials", "credentials")
-
-
-def _set_session(resp: Response):
-    resp.set_cookie(COOKIE, _sign(int(time.time()) + SESSION_TTL), max_age=SESSION_TTL,
-                    httponly=True, secure=True, samesite="none")
+    if not await storage.commit_file(CRED_REMOTE, text, "update passkey credentials", "credentials"):
+        log.warning("saving credentials to store repo failed (queued locally)")
 
 
 @app.post("/auth/register/options")
 async def reg_options(request: Request):
     # Only the first device may register without a session; later ones need a session.
-    if _creds() and not _valid(request.cookies.get(COOKIE, "")):
+    if _creds() and not _session_ok(request):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     if os.environ.get("SETUP_TOKEN") and request.headers.get("x-setup-token") != os.environ["SETUP_TOKEN"]:
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     opts = webauthn.generate_registration_options(
         rp_id=RP_ID, rp_name=RP_NAME, user_id=b"haru-owner", user_name="owner")
-    _challenges["reg"] = opts.challenge
-    return Response(webauthn.options_to_json(opts), media_type="application/json")
+    out = json.loads(webauthn.options_to_json(opts))
+    out["challenge_id"] = _make_challenge_id("reg", opts.challenge)
+    return JSONResponse(out)
 
 
 @app.post("/auth/register/verify")
 async def reg_verify(request: Request):
-    if _creds() and not _valid(request.cookies.get(COOKIE, "")):
+    if _creds() and not _session_ok(request):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     if os.environ.get("SETUP_TOKEN") and request.headers.get("x-setup-token") != os.environ["SETUP_TOKEN"]:
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    challenge = _open_challenge_id(request.headers.get("x-challenge-id", ""), "reg")
+    if challenge is None:
+        log.warning("register verify: missing/invalid/expired challenge id")
+        return JSONResponse({"detail": "verification failed"}, status_code=400)
     try:
         v = webauthn.verify_registration_response(
-            credential=await request.json(), expected_challenge=_challenges.pop("reg"),
+            credential=await request.json(), expected_challenge=challenge,
             expected_rp_id=RP_ID, expected_origin=ORIGIN)
-    except Exception:
+    except Exception as e:
+        log.warning("register verify failed: %s: %s", type(e).__name__, e)
         return JSONResponse({"detail": "verification failed"}, status_code=400)
     creds = _creds()
     creds.append({"id": bytes_to_base64url(v.credential_id),
                   "pk": bytes_to_base64url(v.credential_public_key), "count": v.sign_count})
     await _save_creds(creds)
-    resp = JSONResponse({"ok": True})
-    _set_session(resp)
-    return resp
+    return JSONResponse({"ok": True, "token": _new_session()})
 
 
 @app.post("/auth/login/options")
@@ -159,31 +195,33 @@ async def login_options():
     opts = webauthn.generate_authentication_options(
         rp_id=RP_ID,
         allow_credentials=[PublicKeyCredentialDescriptor(id=base64url_to_bytes(c["id"])) for c in _creds()])
-    _challenges["auth"] = opts.challenge
-    return Response(webauthn.options_to_json(opts), media_type="application/json")
+    out = json.loads(webauthn.options_to_json(opts))
+    out["challenge_id"] = _make_challenge_id("auth", opts.challenge)
+    return JSONResponse(out)
 
 
 @app.post("/auth/login/verify")
 async def login_verify(request: Request):
     body = await request.json()
     cred = next((c for c in _creds() if c["id"] == body.get("id")), None)
-    if not cred or "auth" not in _challenges:
+    challenge = _open_challenge_id(request.headers.get("x-challenge-id", ""), "auth")
+    if not cred or challenge is None:
+        log.warning("login verify: unknown credential=%s, valid challenge=%s", cred is None, challenge is not None)
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     try:
         v = webauthn.verify_authentication_response(
-            credential=body, expected_challenge=_challenges.pop("auth"),
+            credential=body, expected_challenge=challenge,
             expected_rp_id=RP_ID, expected_origin=ORIGIN,
             credential_public_key=base64url_to_bytes(cred["pk"]), credential_current_sign_count=cred["count"])
-    except Exception:
+    except Exception as e:
+        log.warning("login verify failed: %s: %s", type(e).__name__, e)
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     creds = _creds()
     for c in creds:
         if c["id"] == cred["id"]:
             c["count"] = v.new_sign_count
     await _save_creds(creds)
-    resp = JSONResponse({"ok": True})
-    _set_session(resp)
-    return resp
+    return JSONResponse({"ok": True, "token": _new_session()})
 
 
 # ---- chat ----

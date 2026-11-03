@@ -1,4 +1,7 @@
 """API tests for auth gating, sessions and /chat. Run from server/: python -m unittest discover -s tests."""
+import base64
+import hashlib
+import json
 import os
 import sys
 import tempfile
@@ -10,14 +13,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["SESSION_SECRET"] = "test-secret"
 os.environ["CRED_FILE"] = str(Path(tempfile.mkdtemp()) / "creds.json")
 
+import cbor2  # noqa: E402
+from cryptography.hazmat.primitives import hashes  # noqa: E402
+from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import main  # noqa: E402
 
 
+def b64u(b: bytes) -> str:
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+
 def authed_client():
     c = TestClient(main.app, base_url="https://testserver")
-    c.cookies.set(main.COOKIE, main._sign(int(time.time()) + 60))
+    c.headers["Authorization"] = f"Bearer {main._sign(int(time.time()) + 60)}"
     return c
 
 
@@ -43,13 +53,6 @@ class AuthTest(unittest.TestCase):
             "Access-Control-Request-Headers": "content-type,x-setup-token"})
         self.assertEqual(p.status_code, 200)
 
-    def test_session_cookie_attributes(self):
-        r = main.JSONResponse({})
-        main._set_session(r)
-        c = r.headers["set-cookie"].lower()
-        for part in ("samesite=none", "secure", "httponly"):
-            self.assertIn(part, c)
-
     def test_bad_and_expired_tokens_rejected(self):
         self.assertFalse(main._valid("garbage"))
         self.assertFalse(main._valid(main._sign(int(time.time()) - 1)))
@@ -73,6 +76,76 @@ class AuthTest(unittest.TestCase):
         finally:
             del os.environ["SETUP_TOKEN"]
         self.assertEqual(r.status_code, 401)
+
+
+class PasskeyFlowTest(unittest.TestCase):
+    """Full register -> login flow with a software authenticator, no cookies involved."""
+
+    def setUp(self):
+        import asyncio
+        self.orig = (main.storage.commit_file, main._cred_cache)
+
+        async def fake_commit(*a, **k):
+            return True
+
+        main.storage.commit_file = fake_commit
+        main._cred_cache = []
+        self.client = TestClient(main.app)
+        self.key = ec.generate_private_key(ec.SECP256R1())
+        self.cred_id = os.urandom(16)
+
+    def tearDown(self):
+        main.storage.commit_file, main._cred_cache = self.orig
+
+    def _client_data(self, typ, challenge):
+        return json.dumps({"type": typ, "challenge": challenge, "origin": main.ORIGIN, "crossOrigin": False}).encode()
+
+    def _register(self):
+        o = self.client.post("/auth/register/options").json()
+        nums = self.key.public_key().public_numbers()
+        cose = cbor2.dumps({1: 2, 3: -7, -1: 1, -2: nums.x.to_bytes(32, "big"), -3: nums.y.to_bytes(32, "big")})
+        auth = (hashlib.sha256(main.RP_ID.encode()).digest() + bytes([0x45]) + (0).to_bytes(4, "big")
+                + bytes(16) + len(self.cred_id).to_bytes(2, "big") + self.cred_id + cose)
+        body = {"id": b64u(self.cred_id), "rawId": b64u(self.cred_id), "type": "public-key", "response": {
+            "clientDataJSON": b64u(self._client_data("webauthn.create", o["challenge"])),
+            "attestationObject": b64u(cbor2.dumps({"fmt": "none", "attStmt": {}, "authData": auth}))}}
+        return self.client.post("/auth/register/verify", json=body, headers={"X-Challenge-Id": o["challenge_id"]})
+
+    def _login(self, count=1):
+        o = self.client.post("/auth/login/options").json()
+        auth = hashlib.sha256(main.RP_ID.encode()).digest() + bytes([0x05]) + count.to_bytes(4, "big")
+        cd = self._client_data("webauthn.get", o["challenge"])
+        sig = self.key.sign(auth + hashlib.sha256(cd).digest(), ec.ECDSA(hashes.SHA256()))
+        body = {"id": b64u(self.cred_id), "rawId": b64u(self.cred_id), "type": "public-key", "response": {
+            "clientDataJSON": b64u(cd), "authenticatorData": b64u(auth), "signature": b64u(sig),
+            "userHandle": None}}
+        return self.client.post("/auth/login/verify", json=body, headers={"X-Challenge-Id": o["challenge_id"]})
+
+    def test_register_then_login_with_bearer_token(self):
+        r = self._register()
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertNotIn("set-cookie", r.headers)
+        self.assertEqual(self.client.get("/auth/me", headers={"Authorization": f"Bearer {r.json()['token']}"}).status_code, 200)
+        r = self._login()
+        self.assertEqual(r.status_code, 200, r.text)
+        tok = r.json()["token"]
+        self.assertEqual(self.client.get("/auth/me", headers={"Authorization": f"Bearer {tok}"}).status_code, 200)
+        self.assertEqual(self.client.get("/auth/me").status_code, 401)
+
+    def test_second_registration_needs_session(self):
+        self.assertEqual(self._register().status_code, 200)
+        self.assertEqual(self.client.post("/auth/register/options").status_code, 401)
+
+    def test_challenge_id_is_bound_to_purpose_and_signature(self):
+        ch = os.urandom(32)
+        cid = main._make_challenge_id("reg", ch)
+        self.assertEqual(main._open_challenge_id(cid, "reg"), ch)
+        self.assertIsNone(main._open_challenge_id(cid, "auth"))
+        self.assertIsNone(main._open_challenge_id(cid[:-2] + "00", "reg"))
+        self.assertIsNone(main._open_challenge_id("", "reg"))
+
+    def test_verify_without_challenge_id_fails(self):
+        self.assertEqual(self.client.post("/auth/register/verify", json={}).status_code, 400)
 
 
 class CredStoreTest(unittest.TestCase):

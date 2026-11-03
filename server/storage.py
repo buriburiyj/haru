@@ -2,6 +2,7 @@
 import asyncio
 import base64
 import json
+import logging
 import os
 import time
 from pathlib import Path
@@ -64,7 +65,9 @@ async def commit_file(path: str, content: str, msg: str, queue_name: str) -> boo
         async with httpx.AsyncClient(timeout=20) as c:
             await _put(c, path, content, msg)
         return True
-    except Exception:
+    except Exception as e:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        logging.getLogger("uvicorn.error").warning("commit %s failed: %s status=%s", path, type(e).__name__, status)
         QUEUE.mkdir(parents=True, exist_ok=True)
         (QUEUE / f"{queue_name}.json").write_text(json.dumps({"path": path, "content": content}))
         return False
