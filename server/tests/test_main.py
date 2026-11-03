@@ -175,6 +175,32 @@ class CredStoreTest(unittest.TestCase):
             main.storage.commit_file, main.storage.read_file, main._cred_cache = orig
 
 
+class ReadOnlyDiskTest(unittest.TestCase):
+    def test_save_creds_survives_unwritable_disk(self):
+        import asyncio
+
+        async def fake_commit(*a, **k):
+            return True
+
+        orig = (main.storage.commit_file, main.CRED_FILE, main._cred_cache)
+        main.storage.commit_file = fake_commit
+        main.CRED_FILE = Path("/proc/nope/credentials.json")  # cannot be created
+        try:
+            asyncio.run(main._save_creds([{"id": "a", "pk": "b", "count": 0}]))
+            self.assertEqual(main._creds()[0]["id"], "a")
+        finally:
+            main.storage.commit_file, main.CRED_FILE, main._cred_cache = orig
+
+    def test_queue_write_failure_does_not_raise(self):
+        import storage
+        orig = storage.QUEUE
+        storage.QUEUE = Path("/proc/nope/queue")
+        try:
+            storage._enqueue("x", "p", "c")
+        finally:
+            storage.QUEUE = orig
+
+
 class ChatTest(unittest.TestCase):
     def test_chat_streams_and_saves(self):
         saved = {}

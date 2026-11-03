@@ -26,7 +26,7 @@ RP_ID = "buriburiyj.github.io"
 RP_NAME = "Haru"
 CHALLENGE_TTL = 300
 SESSION_TTL = 60 * 60 * 24 * 30
-CRED_FILE = Path(os.environ.get("CRED_FILE", Path(__file__).parent / "credentials.json"))
+CRED_FILE = Path(os.environ.get("CRED_FILE", "/tmp/credentials.json"))
 CRED_REMOTE = os.environ.get("CRED_REMOTE_PATH", ".agent/credentials.json")  # public keys only
 PUBLIC = {"/health", "/auth/register/options", "/auth/register/verify", "/auth/login/options", "/auth/login/verify"}
 
@@ -131,6 +131,15 @@ def _creds() -> list:
     return _cred_cache
 
 
+def _write_local(text: str):
+    """Best-effort local cache; a read-only disk must never cause a 500."""
+    try:
+        CRED_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CRED_FILE.write_text(text)
+    except OSError as e:
+        log.warning("local credentials write failed: %s", type(e).__name__)
+
+
 async def _load_remote_creds():
     """Restore credentials from the private store repo (survives redeploys)."""
     global _cred_cache
@@ -138,7 +147,7 @@ async def _load_remote_creds():
         text = await storage.read_file(CRED_REMOTE)
         if text:
             _cred_cache = json.loads(text)
-            CRED_FILE.write_text(text)
+            _write_local(text)
     except Exception as e:
         log.warning("loading remote credentials failed: %s", type(e).__name__)  # fall back to local file
 
@@ -147,7 +156,7 @@ async def _save_creds(creds: list):
     global _cred_cache
     _cred_cache = creds
     text = json.dumps(creds)
-    CRED_FILE.write_text(text)
+    _write_local(text)
     if not await storage.commit_file(CRED_REMOTE, text, "update passkey credentials", "credentials"):
         log.warning("saving credentials to store repo failed (queued locally)")
 

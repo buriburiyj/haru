@@ -4,13 +4,13 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 
 ## 진행 중
 - [창A] 1단계 화면 부분: 완료, 브라우저 확인 전 (2026-11-03)
-- [창B] 0단계 서버 실제 연결 (2026-11-03)
 - [창A] 화면 추가 완료(서버 없이, 임시 데이터): 채팅 목록/프로젝트/아티팩트 페이지, 임시 채팅 토글, 권한 요청 카드. 데모: URL에 ?demo=permission (또는 permission-delete, projects)
 - [창A] 수정 범위: web/src/components, styles, design, public만. api.ts, hooks/, server/는 안 건드림
 - [창A] 폰: 첫 화면 ☰ 서랍(이벤트), 페이지/팝업 전체화면, visualViewport로 입력창 키보드 위, 터치 44px는 styles/mobile.css(pointer: coarse)
 - [창A] 빌드 통과, 색 직접 사용 0건. 폰 점검은 코드로만 함(실기기/390px 눈으로 확인 아직 안 함)
 
 ## Done
+- [창B] Stage 0 DONE (2026-11-03): Groq/NVIDIA real answers, jun-files .agent save, passkey register+login on Mac against https://haru-server.hostless.app (1a16afb, Hostless env CRED_FILE=/tmp/credentials.json, QUEUE_DIR=/tmp/queue). Auth = signed challenge_id + Bearer token in localStorage (no cookies; cross-site cookies were blocked). jun-files .agent/credentials.json holds 1 credential (public keys only). Defaults for CRED_FILE/QUEUE_DIR are now /tmp and local write failures no longer cause 500. Known: Codex transport not implemented (router falls through to NVIDIA); nemotron-3-ultra gave 503 overload once.
 - Codex login works in GitHub Actions (jun-files, secret CODEX_AUTH_JSON, workflow codex-auth-test, run 41319601552 success, 23s). So Actions can use Codex when the Mac is off.
 - GitHub Pages live: https://buriburiyj.github.io/haru (200). Token haru-store (jun-files Contents rw, expires 2027-01-30) saved as HARU_GH_TOKEN in ~/computer-use/.env, verified with API 200.
 - Repo buriburiyj/haru created and pushed. Box started; both models answered the first exam problem (exam/RESULT.md): inconclusive, order unchanged.
@@ -35,12 +35,10 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 
 ## Remaining
 - Exam order stays gpt-6-luna -> gpt-5.6-terra -> gpt-5.6-luna (both 13/13)
-- Stage 0 skeleton: test Groq/NVIDIA/GitHub commit/passkey for real; set SESSION_SECRET
-- Hostless app + env vars (STEPS C1; Aside cannot read the real ~/computer-use/.env, so a human or a clipboard step must supply values)
 - Stages 1-6 per SPEC.md section 12
 
 ## Next (one line)
-Enter the env vars in Hostless (user pastes values), set VITE_API_URL=https://haru-server.hostless.app for the web build, then test passkey register/login and /chat end to end.
+Stage 1 server side (real chat save, chat list API, auto model selection wiring): plan reported, waiting for approval.
 - [창A] 2단계 화면(서버 없이): components/customize/ (CustomizePanel 하나를 사이드바 사용자 지정 팝업과 설정 팝업이 공유). 임시 예시 데이터는 customize/sample.ts.
 - [창A] [Skills|커넥터|플러그인]x[내 항목|탐색], 빈 상태 카드, 커넥터 표(이름/유형/상태), Skills 목록(⋯ 메뉴). 서버 연결과 저장은 아직 없음.
 - [창A] web/design/icon_raw.png 삭제함. 아이콘은 icon_transparent.png 기준으로 이미 반영됨(로고 PNG, favicon.svg, apple-touch 180, PWA 192 any+maskable).

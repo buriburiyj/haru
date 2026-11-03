@@ -10,7 +10,7 @@ import httpx
 
 OWNER = os.environ.get("GITHUB_OWNER", "buriburiyj")
 REPO = os.environ.get("GITHUB_REPO", "jun-files")
-QUEUE = Path(os.environ.get("QUEUE_DIR", Path(__file__).parent / "queue"))
+QUEUE = Path(os.environ.get("QUEUE_DIR", "/tmp/queue"))
 API = "https://api.github.com"
 
 
@@ -19,6 +19,15 @@ def _headers():
         "Authorization": f"Bearer {os.environ.get('GITHUB_TOKEN', '')}",
         "Accept": "application/vnd.github+json",
     }
+
+
+def _enqueue(name: str, path: str, content: str):
+    """Best-effort local retry queue; a read-only disk must never raise."""
+    try:
+        QUEUE.mkdir(parents=True, exist_ok=True)
+        (QUEUE / f"{name}.json").write_text(json.dumps({"path": path, "content": content}))
+    except OSError as e:
+        logging.getLogger("uvicorn.error").warning("queue write failed: %s", type(e).__name__)
 
 
 async def _put(client: httpx.AsyncClient, path: str, content: str, msg: str):
@@ -44,8 +53,7 @@ async def save_chat(chat_id: str, data: dict) -> bool:
             await _put(c, path, content, f"chat {safe}")
         return True
     except Exception:
-        QUEUE.mkdir(parents=True, exist_ok=True)
-        (QUEUE / f"{safe}.json").write_text(json.dumps({"path": path, "content": content}))
+        _enqueue(safe, path, content)
         return False
 
 
@@ -68,8 +76,7 @@ async def commit_file(path: str, content: str, msg: str, queue_name: str) -> boo
     except Exception as e:
         status = getattr(getattr(e, "response", None), "status_code", None)
         logging.getLogger("uvicorn.error").warning("commit %s failed: %s status=%s", path, type(e).__name__, status)
-        QUEUE.mkdir(parents=True, exist_ok=True)
-        (QUEUE / f"{queue_name}.json").write_text(json.dumps({"path": path, "content": content}))
+        _enqueue(queue_name, path, content)
         return False
 
 
