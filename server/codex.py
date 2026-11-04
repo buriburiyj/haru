@@ -68,7 +68,11 @@ async def _load_usage():
 
 
 async def usage() -> dict:
-    return dict(await _load_usage())
+    """This month's Actions usage. `resets_at` is the start of next month (UTC), unix seconds."""
+    u = await _load_usage()
+    t = time.gmtime()
+    nxt = calendar.timegm((t.tm_year + (t.tm_mon == 12), t.tm_mon % 12 + 1, 1, 0, 0, 0))
+    return {"minutes_used": u["minutes"], "minutes_limit": MONTHLY_LIMIT_MIN, "runs": u["runs"], "resets_at": nxt}
 
 
 async def _add_usage(seconds: float):

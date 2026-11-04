@@ -151,6 +151,40 @@ class PasskeyFlowTest(unittest.TestCase):
         self.assertEqual(self.client.post("/auth/register/verify", json={}).status_code, 400)
 
 
+class UsageApiTest(unittest.TestCase):
+    def test_usage_needs_session_and_has_no_billing_fields(self):
+        self.assertEqual(TestClient(main.app).get("/usage").status_code, 401)
+
+        async def fake_usage():
+            return {"minutes_used": 3, "minutes_limit": 1500, "runs": 2, "resets_at": 1}
+
+        orig = main.codex.usage
+        main.codex.usage = fake_usage
+        try:
+            d = authed_client().get("/usage").json()
+        finally:
+            main.codex.usage = orig
+        self.assertEqual(set(d), {"as_of", "codex", "groq", "nvidia"})
+        self.assertEqual(d["codex"]["minutes_limit"], 1500)
+        self.assertEqual(set(d["groq"]), {"calls_today", "rate_limited_today", "resets_at"})
+        text = json.dumps(d).lower()
+        for banned in ("price", "cost", "bill", "pay", "usd", "$"):
+            self.assertNotIn(banned, text)
+
+    def test_usage_survives_github_failure(self):
+        async def boom():
+            raise RuntimeError("github down")
+
+        orig = main.codex.usage
+        main.codex.usage = boom
+        try:
+            d = authed_client().get("/usage").json()
+        finally:
+            main.codex.usage = orig
+        self.assertIsNone(d["codex"])
+        self.assertIn("groq", d)
+
+
 class CredStoreTest(unittest.TestCase):
     def test_save_commits_and_load_restores(self):
         import asyncio

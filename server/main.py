@@ -16,9 +16,11 @@ import webauthn
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
+import codex
 import memory
 import router
 import search
+import usage
 import storage
 import uploads
 
@@ -344,6 +346,16 @@ async def memory_delete(mid: str):
     except Exception as e:
         return _store_error(e)
     return {"ok": True} if ok else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.get("/usage")
+async def usage_get():
+    """Free-tier usage for the settings screen. No billing fields. Times are unix seconds (UTC)."""
+    try:
+        cx = await codex.usage()
+    except Exception:
+        cx = None  # GitHub unreachable: the other numbers are still useful
+    return {"as_of": int(time.time()), "codex": cx, **usage.snapshot()}
 
 
 @app.get("/models")

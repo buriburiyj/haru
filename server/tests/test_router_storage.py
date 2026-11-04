@@ -5,6 +5,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -44,10 +45,15 @@ class RouterTest(unittest.TestCase):
     def setUp(self):
         self._sleep = router.asyncio.sleep
 
-        async def nosleep(_):
-            pass
+        self.sleeps = []
+
+        async def nosleep(d):
+            self.sleeps.append(d)
 
         router.asyncio.sleep = nosleep
+        import usage
+        usage._state = None
+        usage.USAGE_FILE = Path(tempfile.mkdtemp()) / "u.json"
 
     def tearDown(self):
         httpx.AsyncClient = REAL_CLIENT
@@ -96,6 +102,49 @@ class RouterTest(unittest.TestCase):
         patch_client(lambda req: httpx.Response(200, text=sse("x")))
         out = self.run_route("auto")  # goes through classification, not a model called "auto"
         self.assertTrue(any(k == "delta" for k, _ in out))
+
+    def test_429_waits_then_retries_same_model(self):
+        calls = {"n": 0}
+
+        def h(req):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                return httpx.Response(429, headers={"retry-after": "3"})
+            return httpx.Response(200, text=sse("ok"))
+        patch_client(h)
+        out = self.run_route("easy")
+        self.assertEqual(out[0], ("notice", "요청이 몰려서 잠시 기다린 뒤 다시 시도해요."))
+        self.assertIn(("model", router.GROQ_MODEL), out)
+        self.assertIn(3.0, self.sleeps)  # waited what the provider asked for
+        self.assertEqual(calls["n"], 2)
+
+    def test_429_twice_moves_to_next_model(self):
+        def h(req):
+            return httpx.Response(200, text=sse("n")) if "nvidia" in req.url.host else httpx.Response(429)
+        patch_client(h)
+        out = self.run_route("easy")
+        self.assertIn(("notice", "요청이 많아서 다른 모델로 답해요."), out)
+        self.assertIn(("model", router.NVIDIA_MODELS[0]), out)
+        self.assertTrue(all(d <= router.RETRY_CAP_SECONDS for d in self.sleeps))
+
+    def test_retry_after_is_capped(self):
+        patch_client(lambda req: httpx.Response(429, headers={"retry-after": "9999"}))
+        self.run_route("easy")
+        self.assertTrue(self.sleeps and max(self.sleeps) <= router.RETRY_CAP_SECONDS)
+
+    def test_usage_counts_calls_and_rate_limits(self):
+        import usage
+        calls = {"n": 0}
+
+        def h(req):
+            calls["n"] += 1
+            return httpx.Response(429) if calls["n"] == 1 else httpx.Response(200, text=sse("x"))
+        patch_client(h)
+        self.run_route("easy")
+        snap = usage.snapshot()
+        self.assertEqual((snap["groq"]["calls_today"], snap["groq"]["rate_limited_today"]), (2, 1))  # 2 requests, 1 was a 429
+        self.assertEqual(snap["nvidia"]["calls_today"], 0)
+        self.assertGreater(snap["groq"]["resets_at"], time.time())
 
     def test_classify_defaults_hard_on_error(self):
         patch_client(lambda req: httpx.Response(500))

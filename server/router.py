@@ -5,6 +5,7 @@ import asyncio
 import httpx
 
 import codex
+import usage
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
@@ -50,6 +51,24 @@ class QuotaError(Exception):
     pass
 
 
+class RateLimited(QuotaError):
+    """HTTP 429. `retry_after` is how long the provider asked us to wait (seconds, capped)."""
+
+    def __init__(self, retry_after: float = 2.0):
+        super().__init__("429")
+        self.retry_after = retry_after
+
+
+RETRY_CAP_SECONDS = 6.0
+
+
+def _retry_after(r) -> float:
+    try:
+        return max(1.0, min(float(r.headers.get("retry-after", 2)), RETRY_CAP_SECONDS))
+    except (TypeError, ValueError):
+        return 2.0
+
+
 def _key(name: str) -> str:
     v = os.environ.get(name, "")
     if not v:
@@ -60,7 +79,10 @@ def _key(name: str) -> str:
 async def classify(client: httpx.AsyncClient, messages: list) -> str:
     """Return 'easy' or 'hard'. Defaults to 'hard' on any failure."""
     try:
-        last = messages[-1]["content"][:2000]
+        last = messages[-1]["content"]
+        last = last if isinstance(last, str) else " ".join(p.get("text", "") for p in last if isinstance(p, dict))
+        last = last[:2000]
+        usage.count("groq")
         r = await client.post(
             GROQ_URL,
             headers={"Authorization": f"Bearer {_key('GROQ_API_KEY')}"},
@@ -84,6 +106,8 @@ async def classify(client: httpx.AsyncClient, messages: list) -> str:
 
 async def _stream_openai(client, url, key_name, model, messages):
     """Yield text deltas from an OpenAI-compatible streaming endpoint."""
+    provider = "groq" if key_name.startswith("GROQ") else "nvidia"
+    usage.count(provider)
     async with client.stream(
         "POST", url,
         headers={"Authorization": f"Bearer {_key(key_name)}"},
@@ -91,7 +115,8 @@ async def _stream_openai(client, url, key_name, model, messages):
         timeout=httpx.Timeout(60, read=60),
     ) as r:
         if r.status_code == 429:
-            raise QuotaError("429")
+            usage.count(provider, rate_limited=True)
+            raise RateLimited(_retry_after(r))
         if r.status_code >= 400:
             raise QuotaError(f"http {r.status_code}")
         async for line in r.aiter_lines():
@@ -135,20 +160,32 @@ async def route(messages: list, mode: str = "auto"):
                         yield "notice", "Codex를 쓸 수 없어서 다른 모델로 답해요."
                     continue
             started = False
-            try:
-                if prov == "groq":
-                    gen = _stream_openai(client, GROQ_URL, "GROQ_API_KEY", model, messages)
-                else:
-                    gen = _stream_openai(client, NVIDIA_URL, "NVIDIA_API_KEY", model, messages)
-                async for d in gen:
-                    if not started:
-                        started = True
-                        yield "model", model
-                    yield "delta", d
-                return
-            except (QuotaError, httpx.HTTPError):
-                if started:
-                    yield "notice", "Stream interrupted"
+            for attempt in (1, 2):  # a 429 is retried once after the wait the provider asked for
+                try:
+                    if prov == "groq":
+                        gen = _stream_openai(client, GROQ_URL, "GROQ_API_KEY", model, messages)
+                    else:
+                        gen = _stream_openai(client, NVIDIA_URL, "NVIDIA_API_KEY", model, messages)
+                    async for d in gen:
+                        if not started:
+                            started = True
+                            yield "model", model
+                        yield "delta", d
                     return
-                await asyncio.sleep(0.5)
+                except RateLimited as e:
+                    if started:
+                        yield "notice", "Stream interrupted"
+                        return
+                    if attempt == 1:
+                        yield "notice", "요청이 몰려서 잠시 기다린 뒤 다시 시도해요."
+                        await asyncio.sleep(e.retry_after)
+                        continue
+                    yield "notice", "요청이 많아서 다른 모델로 답해요."
+                    break
+                except (QuotaError, httpx.HTTPError):
+                    if started:
+                        yield "notice", "Stream interrupted"
+                        return
+                    await asyncio.sleep(0.5)
+                    break
         yield "notice", "All models unavailable"
