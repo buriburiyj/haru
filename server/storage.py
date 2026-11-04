@@ -66,6 +66,26 @@ async def commit_file(path: str, content: str, msg: str, queue_name: str) -> boo
         return False
 
 
+async def put_bytes(client: httpx.AsyncClient, path: str, data: bytes, msg: str):
+    """Create a binary file in the store repo (raises on failure)."""
+    url = f"{API}/repos/{OWNER}/{REPO}/contents/{path}"
+    body = {"message": msg, "content": base64.b64encode(data).decode(), "branch": os.environ.get("GITHUB_BRANCH", "main")}
+    r = await client.put(url, headers=_headers(), json=body)
+    r.raise_for_status()
+
+
+async def read_bytes(path: str):
+    """Raw file bytes from the store repo, or None if missing."""
+    h = dict(_headers())
+    h["Accept"] = "application/vnd.github.raw+json"
+    async with httpx.AsyncClient(timeout=30) as c:
+        r = await c.get(f"{API}/repos/{OWNER}/{REPO}/contents/{path}", headers=h)
+    if r.status_code == 404:
+        return None
+    r.raise_for_status()
+    return r.content
+
+
 BRANCH = os.environ.get("GITHUB_BRANCH", "main")
 CHATS_DIR = ".agent/chats"
 INDEX_PATH = f"{CHATS_DIR}/index.json"

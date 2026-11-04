@@ -25,7 +25,12 @@ def models() -> list:
     return out
 
 
+VISION_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"  # used when a message has images; not in the picker
+
+
 def _provider(model: str):
+    if model == VISION_MODEL:
+        return "nvidia"
     for m in models():
         if m["id"] == model:
             return m["provider"]

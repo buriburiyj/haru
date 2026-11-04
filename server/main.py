@@ -19,6 +19,7 @@ from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 import router
 import search
 import storage
+import uploads
 
 log = logging.getLogger("uvicorn.error")
 
@@ -258,8 +259,40 @@ def _clean_messages(raw) -> list:
         item = {"role": m["role"], "content": content}
         if isinstance(m.get("model"), str):
             item["model"] = m["model"]
+        if m["role"] == "user" and isinstance(m.get("images"), list):
+            ids = [i for i in m["images"] if isinstance(i, str) and uploads.valid_id(i)]
+            if ids:
+                item["images"] = ids[: uploads.MAX_IMAGES_PER_REQUEST]
         out.append(item)
     return out
+
+
+@app.post("/uploads")
+async def upload(request: Request, name: str = ""):
+    """Raw image bytes in the body (Content-Type image/*), name in the query. Returns {id, name, mime, size}."""
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > uploads.MAX_BYTES:
+        return JSONResponse({"detail": "image too large"}, status_code=413)
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf += chunk
+        if len(buf) > uploads.MAX_BYTES:
+            return JSONResponse({"detail": "image too large"}, status_code=413)
+    try:
+        return await uploads.save(bytes(buf), name)
+    except uploads.UploadError as e:
+        return JSONResponse({"detail": e.detail}, status_code=e.status)
+
+
+@app.get("/uploads/{upload_id}")
+async def upload_get(upload_id: str):
+    try:
+        got = await uploads.load(upload_id)
+    except Exception as e:
+        return _store_error(e)
+    if got is None:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    return Response(got[0], media_type=got[1], headers={"Cache-Control": "private, max-age=86400"})
 
 
 @app.get("/models")
@@ -281,9 +314,27 @@ async def chat(request: Request):
     temporary = bool(body.get("temporary", False))
     # Only model-visible fields go to the providers.
     prompt = [{"role": m["role"], "content": m["content"]} for m in messages]
+    attach = [(i, img) for i, m in enumerate(messages) for img in m.get("images", [])]
+    attach = attach[-uploads.MAX_IMAGES_PER_REQUEST:]
 
     async def gen():
+        nonlocal mode
         parts, model, results = [], None, []
+        if attach:
+            loaded = {}
+            for i, img in attach:
+                got = await uploads.load(img)
+                if got:
+                    loaded.setdefault(i, []).append(uploads.data_uri(*got))
+            if loaded:
+                for i, uris in loaded.items():
+                    text = prompt[i]["content"] or "이 이미지를 설명해 주세요."
+                    prompt[i] = {"role": "user", "content": [{"type": "text", "text": text}] + [
+                        {"type": "image_url", "image_url": {"url": u}} for u in uris]}
+                mode = router.VISION_MODEL  # images are read by the vision model only
+                yield _sse("notice", "사진을 읽는 중이에요.")
+            else:
+                yield _sse("notice", "첨부한 사진을 찾지 못했어요.")
         if search.needs_search(messages, web):
             yield _sse("notice", "웹에서 검색하는 중이에요.")
             last = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
