@@ -80,10 +80,10 @@
 html[data-fontsize="small"] { font-size: 14px; }
 html[data-fontsize="large"] { font-size: 18px; }
 
-/* font setting (Settings -> 글꼴): 기본 = Pretendard body, 읽기 = serif body (light), 시스템 = system fonts */
+/* font setting (Settings -> 글꼴): 기본 = Pretendard body, 읽기 = serif body (regular 400), 시스템 = system fonts */
 html[data-font="reading"] {
   --haru-font-reading: var(--haru-font-serif);
-  --haru-reading-weight: 300;
+  /* body stays at 400 (MaruBuri Regular + Source Serif 4 400); bold is faked from 400 */
 }
 html[data-font="system"] {
   --haru-font-ui: system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;

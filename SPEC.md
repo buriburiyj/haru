@@ -197,9 +197,10 @@ pbpaste >> ~/haru/SPEC.md && tail -3 ~/haru/SPEC.md
 
 ## 글꼴 확정 (2026-11-04, Claude 현재 방식에 맞춤)
 - 본문(답변, 메뉴, 버튼, 입력창): Pretendard 400. 답변 본문은 15px, 줄 간격 1.6
-- 큰 제목(첫 화면 인사, 페이지 제목): 명조 Light. 영어와 숫자는 Source Serif 4 300, 한글은 마루 부리의 가장 얇은 굵기(ExtraLight) 1개만 넣는다. 마루 부리 400/700은 쓰지 않는다
+- 큰 제목(첫 화면 인사, 페이지 제목): 명조 Light. 영어와 숫자는 Source Serif 4 300, 한글은 마루 부리 ExtraLight(가장 얇은 굵기)
+- 읽기 모드 본문: 마루 부리 Regular(400) + Source Serif 4 400. 굵은 글자는 400에서 흉내 낸다. 마루 부리 700은 넣지 않는다. 기본(고딕) 모드에서는 이 400 파일을 내려받지 않는다
 - 코드: JetBrains Mono 400
-- 설정 > 글꼴 선택: 기본(고딕 본문, 기본값) / 읽기(본문 명조, Light) / 시스템
+- 설정 > 글꼴 선택: 기본(고딕 본문, 기본값) / 읽기(본문 명조, 400) / 시스템
 - 모두 npm이나 web/src/assets에 넣어서 빌드(CDN 금지), woff2로 필요한 굵기만, font-display: swap
 - 글꼴 값은 web/src/styles/tokens.css 변수(--haru-font-*)만 쓴다. 화면 코드는 font-heading / font-reading / font-mono 이름만 쓴다
 - Anthropic Sans, Anthropic Serif(npm anthropic-fonts 등)는 라이선스가 없으므로 절대 쓰지 않는다

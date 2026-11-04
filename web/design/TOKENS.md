@@ -23,11 +23,11 @@ Check it by eye at `/haru/?demo=ui` (no login, no server): theme, font and size 
 |---|---|---|
 | font-sans (default on body) | --haru-font-ui | Pretendard Variable, weight 400 |
 | font-heading + font-light | --haru-font-heading | Source Serif 4 300 (Latin/digits) + MaruBuri ExtraLight (Hangul, served as 300); 시스템 = system fonts |
-| font-reading (answers) | --haru-font-reading | 기본 = Pretendard; 읽기 = serif Light (--haru-reading-weight 300); 시스템 = system |
+| font-reading (answers) | --haru-font-reading | 기본 = Pretendard; 읽기 = serif Regular 400 (Source Serif 4 400 + MaruBuri Regular; bold is faked, no 700); 시스템 = system |
 | font-mono (code) | --haru-font-mono | JetBrains Mono 400 |
 Answer text: 15px (--haru-reading-size 0.9375rem), line height 1.6 (--haru-reading-leading). Whole-UI size: `data-fontsize` small 14px / medium 16px / large 18px on <html> (rem based).
 Big titles (first-screen greeting, page titles) use `font-heading font-light`. Anthropic Sans/Serif must never be used (no license).
-Files bundled: Pretendard variable (split by unicode-range), Source Serif 4 300, MaruBuri ExtraLight, JetBrains Mono 400. Licenses: `web/public/licenses/FONTS.md`.
+Files bundled: Pretendard variable (split by unicode-range), Source Serif 4 300 and 400, MaruBuri ExtraLight and Regular, JetBrains Mono 400. The 400 serif files are requested only in 읽기 mode. Licenses: `web/public/licenses/FONTS.md`.
 
 ## Shape and space
 | Tailwind | Variable | Value | Use |
