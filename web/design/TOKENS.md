@@ -38,7 +38,10 @@ Weights bundled: Pretendard variable (split by unicode-range), Source Serif 4 40
 Control height: 2.75rem (44px) is built into Button, IconButton, Input, Chip, MenuItem. Spacing uses the Tailwind 4px scale (p-2, gap-3, px-4); page content max width max-w-3xl, forms max-w-2xl.
 
 ## Components (`web/src/components/ui/`)
-Button (primary / secondary / ghost / danger), IconButton (label required), Input, Textarea, Card, UserBubble, Reply, Tabs, Chip, Dialog (full screen on phone), Menu / MenuItem / MenuDivider, cx().
+Button (primary / secondary / ghost / danger), IconButton (label required), Input, Textarea, Card, UserBubble, Reply, Tabs, Dialog (full screen on phone), cx().
+- Chip: filter chip, or dropdown chip with `caret` (+ `icon`), e.g. 환경 ▾ / 저장소 ▾ / 모델 ▾ / 권한 모드 ▾ (Code input row).
+- Menu / MenuItem / MenuDivider / SubMenu: MenuItem takes `check` (✓), `toggle` (on/off switch), `shortcut` (e.g. "1"), `hint` (second line), `icon`, `submenu` (›). SubMenu opens to the side on desktop and indented below on phone.
+The example is in the check screen section "칩 · 하위 메뉴 예시".
 
 ## Migration status
 Stage 1, part 1: tokens, components and the check screen exist. Existing screens still use their own classes; part 2 moves them to these components and removes the global 44px rule in `mobile.css`.

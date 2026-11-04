@@ -13,7 +13,7 @@ import {
   type FontSize,
   type Theme,
 } from "../settings/appearance";
-import { Button, Card, Chip, Dialog, IconButton, Input, Menu, MenuDivider, MenuItem, Reply, Tabs, Textarea, UserBubble } from "./index";
+import { Button, Card, Chip, Dialog, IconButton, Input, Menu, MenuDivider, MenuItem, Reply, SubMenu, Tabs, Textarea, UserBubble } from "./index";
 
 // Design check screen: open <site>/haru/?demo=ui . No login, no server calls, no secrets. Sample text only.
 
@@ -61,6 +61,10 @@ export default function UiDemo() {
   const [chip, setChip] = useState("all");
   const [menu, setMenu] = useState(false);
   const [dialog, setDialog] = useState(false);
+  const [model, setModel] = useState(0);
+  const [effort, setEffort] = useState(1);
+  const [web, setWeb] = useState(true);
+  const [chipMenu, setChipMenu] = useState(false);
 
   return (
     <div className="h-full overflow-y-auto bg-bg text-fg">
@@ -164,6 +168,38 @@ export default function UiDemo() {
                 {c === "all" ? "전체" : c === "chat" ? "채팅" : "Code"}
               </Chip>
             ))}
+          </div>
+        </Section>
+
+        <Section title="칩 · 하위 메뉴 예시 (Code 입력창 아래 줄 모양)">
+          <div className="relative flex flex-wrap gap-2">
+            <Chip caret icon="☁">클라우드</Chip>
+            <Chip caret icon="⎇">buriburiyj/haru</Chip>
+            <Chip caret onClick={() => setChipMenu((v) => !v)}>{["자동", "GPT-6 Luna", "GPT-5.6 Terra", "GPT-5.6 Luna", "빠른 답변"][model]}</Chip>
+            <Chip caret>Auto</Chip>
+            {chipMenu && (
+              <Menu className="absolute left-0 top-full z-10 mt-1 w-72">
+                {["자동", "GPT-6 Luna", "GPT-5.6 Terra", "GPT-5.6 Luna", "빠른 답변"].map((m, i) => (
+                  <MenuItem key={m} check={model === i} shortcut={String(i + 1)} hint={i === 0 ? "알아서 골라 줍니다" : undefined} onClick={() => setModel(i)}>
+                    {m}
+                  </MenuItem>
+                ))}
+                <MenuDivider />
+                <SubMenu label="노력">
+                  {["낮음", "보통", "높음", "최대"].map((e, i) => (
+                    <MenuItem key={e} check={effort === i} hint={i === 3 ? "사용량이 많습니다" : undefined} onClick={() => setEffort(i)}>
+                      {e}
+                    </MenuItem>
+                  ))}
+                </SubMenu>
+                <SubMenu label="더 많은 모델">
+                  <MenuItem>Nemotron 3 Ultra</MenuItem>
+                  <MenuItem>Mistral Large 4</MenuItem>
+                </SubMenu>
+                <MenuDivider />
+                <MenuItem toggle={web} onClick={() => setWeb((v) => !v)}>웹 검색</MenuItem>
+              </Menu>
+            )}
           </div>
         </Section>
 
