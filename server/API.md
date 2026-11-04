@@ -20,17 +20,22 @@ Request:
   chat_id?: string,
   mode?: "auto"|"easy"|"hard"|<model id from GET /models>,   // default "auto"
   web?: "auto"|"on"|"off",                                    // default "auto" (search when the question is time-sensitive)
-  temporary?: boolean }                                       // default false
+  temporary?: boolean,                                        // default false
+  project_id?: string,                                        // chat inside a project (see Projects); a chat keeps its project
+  effort?: "low"|"medium"|"high" }                            // reasoning effort, used by Codex only; Groq and NVIDIA ignore it
 ```
 - `images` (user messages only, max 3 used per request) are ids returned by `POST /uploads`. With images the server uses the vision model and ignores `mode`.
-- `temporary: true`: nothing is saved and memory is neither read nor written.
+- `temporary: true`: nothing is saved (no chat, no artifacts) and memory is neither read, written nor suggested.
+- Project chats: the project's instructions and files are given to the model in every message. If `project_id` is missing but the chat already belongs to a project, that project is used. A deleted project is ignored.
 - Easy questions never start GitHub Actions. Hard questions go to Codex (gpt-6-luna, gpt-5.6-terra, gpt-5.6-luna, tried in one Actions run), then NVIDIA.
 
 Response: `text/event-stream`. Events (shapes unchanged):
 - `delta` data `"text chunk"`; Codex answers arrive in a few big chunks (about 400 chars each) after a wait.
 - `notice` data `"status text"` (Korean, user-facing): search started, reading photo, checking GitHub, Codex preparing (about 30-60 s, then every 15 s while working), Codex unavailable, memory saved, rate limit wait ("요청이 몰려서 잠시 기다린 뒤 다시 시도해요." = one retry after 1-6 s; then "요청이 많아서 다른 모델로 답해요."), all models unavailable. Show as a status line, not as answer text.
-- `done` data `{chat_id, saved, model, title, temporary, sources}`
-  - `model`: id of the model that answered (null if none). `title`: chat title (null if not saved).
+- `done` data `{chat_id, saved, model, title, temporary, project_id, artifacts, sources}`
+  - `model`: id of the model that answered (null if none). `title`: chat title (null if not saved). For a new chat the title is a short Groq-made title (same language as the question); it falls back to the first words of the question, and a renamed chat keeps its name.
+  - `project_id`: project used for this chat (null if none). `artifacts`: `[{id,title,language}]` saved from this answer (see Artifacts).
+  - A `notice` "기억 업데이트됨" arrives right before `done` when the server saved or updated a memory from the conversation (see Memory).
   - `saved`: false means not saved (temporary, no answer, or GitHub failed and it is queued for retry).
   - `sources`: `[{title,url}]` for web search results and GitHub files that were used (empty array otherwise). Web search sources are also appended to the answer text as a `출처` markdown list.
 
@@ -39,7 +44,7 @@ Real Codex timing (measured once on the live server): first notice at 5 s, answe
 If a question names a repo and asks about its files (`jun-files에 뭐 있어?`, `jun-files의 README.md 읽어줘`), the server reads it from GitHub (read only) and gives it to the model. Photos in the same message skip this.
 
 ## Chats
-- `GET /chats?q=&limit=` -> `{chats:[{id,title,created,updated,preview}]}` newest first; `q` matches title and preview.
+- `GET /chats?q=&limit=&project_id=` -> `{chats:[{id,title,created,updated,preview}]}` newest first; `q` matches title and preview.
 - `GET /chats/{id}` -> `{id,title,messages}` (404 if missing). Messages may hold `images` ids and `model`.
 - `POST /chats/{id}/rename` `{title}` -> `{ok:true}`
 - `DELETE /chats/{id}` -> `{ok:true}`. Call only after the user confirmed.
@@ -53,6 +58,25 @@ Order: auto, one Groq model, gpt-6-luna, gpt-5.6-terra, gpt-5.6-luna, three NVID
   Response `{id,name,mime,size}`. `413` too large, `415` not an image, `502` storage down. Originals are stored in jun-files `.agent/uploads/`.
 - `GET /uploads/{id}` -> image bytes (needs the Authorization header, so load it with fetch and use a blob URL). `404` if unknown.
 - Then send the id in a user message: `{role:"user", content:"What is this?", images:[id]}`.
+
+## Projects (instructions + text files given to the model in every chat of the project)
+Project: `{id, name, instructions, files:[{name,content}], created, updated}`. Limits: name 60 chars, instructions 4000, 10 files, 20,000 chars per file, 100,000 in total (`413`), file names without slashes. Max 50 projects (`409`). Stored in `.agent/projects/`.
+- `GET /projects` -> `{projects:[{id,name,instructions_preview,files:[names],created,updated}]}` newest first
+- `POST /projects` `{name, instructions?, files?}` -> project. `400` invalid, `413` too big.
+- `GET /projects/{id}` -> project or `404`
+- `PUT /projects/{id}` `{name?, instructions?, files?}` -> project (`files`, if sent, replaces the whole list)
+- `POST /projects/{id}/files` `{name, content}` -> project (adds, or replaces the file with the same name)
+- `DELETE /projects/{id}/files/{name}` -> project. Call only after the user confirmed.
+- `DELETE /projects/{id}` -> `{ok:true}`. Call only after the user confirmed. The project's chats are kept.
+- `GET /chats?project_id=<id>` lists the chats of one project.
+
+## Artifacts (code/HTML blocks from answers)
+After a (non-temporary) answer the server saves its fenced code blocks in `.agent/artifacts/`: every `html` and `svg` block, and other languages (python, js, ts, css, ...) when they are at least 10 lines. Max 5 per answer; the same block in the same chat is stored once (regenerating does not duplicate).
+Artifact: `{id, title, language, chat_id, created, size, content}`; the title comes from `<title>`/`<h1>` or the first comment line, else "<language> snippet".
+- `GET /artifacts?chat_id=` -> `{artifacts:[{id,title,language,chat_id,created,size}]}` newest first (no content)
+- `GET /artifacts/{id}` -> artifact with `content`, or `404`
+- `DELETE /artifacts/{id}` -> `{ok:true}`. Call only after the user confirmed.
+- The ids of artifacts created by an answer are in `done.artifacts`.
 
 ## Usage: `GET /usage`
 ```
@@ -76,12 +100,13 @@ Entry: `{id, topic, content, created, updated}` (topic max 60 chars, content max
 - `PUT /memory/{id}` `{topic?, content?}` -> entry.
 - `DELETE /memory/{id}` -> `{ok:true}`. Call only after the user confirmed.
 - In normal (non-temporary) chats the saved memories are given to the model automatically, and a message like `기억해줘: ...` or `remember that ...` saves a new memory (notice `기억했어요: ...`).
+- Automatic suggestions: after an answer, if the user's message talks about themself (name, job, diet, tools, habits, preferences), a short Groq call decides whether to remember it. A new topic is added, an existing topic (same name, any case) is updated, and the notice `기억 업데이트됨` is sent before `done`. Passwords, keys, long numbers, health/payment details and other people's data are never saved. Never runs in temporary chats and never together with an explicit `기억해줘`.
 
 ## Environment variables (names only)
 Required: `GROQ_API_KEY`, `NVIDIA_API_KEY`, `GITHUB_TOKEN`, `SESSION_SECRET`, `SETUP_TOKEN`.
 Optional (defaults): `GROQ_MODEL` (openai/gpt-oss-20b), `GITHUB_OWNER` (buriburiyj), `GITHUB_REPO` (jun-files), `GITHUB_BRANCH` (main),
 `CRED_FILE` (/tmp/credentials.json), `QUEUE_DIR` (/tmp/queue), `CRED_REMOTE_PATH` (.agent/credentials.json),
-`UPLOAD_MAX_BYTES` (3145728), `USAGE_FILE` (/tmp/haru_usage.json), `CODEX_WORKFLOW` (codex-chat.yml), `CODEX_MONTHLY_MINUTES` (1500), `CODEX_TIMEOUT` (300), `CODEX_START_TIMEOUT` (90).
+`UPLOAD_MAX_BYTES` (3145728), `USAGE_FILE` (/tmp/haru_usage.json), `HARU_DISABLE_LLM` (unset; set to 1 in tests to turn off the Groq helper calls for titles and memory suggestions), `CODEX_WORKFLOW` (codex-chat.yml), `CODEX_MONTHLY_MINUTES` (1500), `CODEX_TIMEOUT` (300), `CODEX_START_TIMEOUT` (90).
 
 ## Codex setup (one time, by the owner)
 1. Copy `server/workflows/codex-chat.yml` to `jun-files/.github/workflows/codex-chat.yml` (secret `CODEX_AUTH_JSON` already exists there).

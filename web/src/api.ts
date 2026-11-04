@@ -23,9 +23,13 @@ export type ChatRequest = {
   web?: "auto" | "on" | "off";
   /** Temporary chat: not saved, memory neither read nor written. */
   temporary?: boolean;
+  effort?: Effort;
 };
 
-export type ChatOptions = { web?: ChatRequest["web"]; temporary?: boolean };
+/** Reasoning effort. Only the Codex path uses it; Groq and NVIDIA ignore it. */
+export type Effort = "low" | "medium" | "high";
+
+export type ChatOptions = { web?: ChatRequest["web"]; temporary?: boolean; effort?: Effort };
 
 /** A source shown under an answer (web search result or GitHub file). */
 export type Source = { title: string; url: string };
@@ -56,9 +60,25 @@ export type ModelList = { default: "auto"; models: ModelInfo[] };
 
 /** Thrown for non-2xx responses. The message is "http <status>" (login errors are classified from it). */
 export class HttpError extends Error {
-  constructor(public status: number) {
+  /** `detail` is the server's error text (the "detail" field of the JSON body), or "" if there was none. */
+  constructor(
+    public status: number,
+    public detail = "",
+  ) {
     super(`http ${status}`);
   }
+}
+
+/** Build an HttpError from a failed response, keeping the server's detail. */
+async function httpError(r: Response): Promise<HttpError> {
+  let detail = "";
+  try {
+    const d = await r.clone().json();
+    if (typeof d?.detail === "string") detail = d.detail;
+  } catch {
+    /* body is not JSON */
+  }
+  return new HttpError(r.status, detail);
 }
 
 const b64uToBuf = (s: string): ArrayBuffer => {
@@ -128,7 +148,7 @@ export async function hasSession(): Promise<boolean> {
 
 export async function login(): Promise<void> {
   const ro = await post("/auth/login/options");
-  if (!ro.ok) throw new HttpError(ro.status);
+  if (!ro.ok) throw await httpError(ro);
   const o = await ro.json();
   o.challenge = b64uToBuf(o.challenge);
   (o.allowCredentials ?? []).forEach((c: any) => (c.id = b64uToBuf(c.id)));
@@ -147,14 +167,14 @@ export async function login(): Promise<void> {
       userHandle: bufToB64u(res.userHandle),
     },
   }, { "X-Challenge-Id": challengeId });
-  if (!r.ok) throw new HttpError(r.status);
+  if (!r.ok) throw await httpError(r);
   await takeToken(r);
 }
 
 export async function register(setupToken: string): Promise<void> {
   const h: Record<string, string> = setupToken ? { "x-setup-token": setupToken } : {};
   const ro = await post("/auth/register/options", undefined, h);
-  if (!ro.ok) throw new HttpError(ro.status);
+  if (!ro.ok) throw await httpError(ro);
   const o = await ro.json();
   o.challenge = b64uToBuf(o.challenge);
   o.user.id = b64uToBuf(o.user.id);
@@ -176,7 +196,7 @@ export async function register(setupToken: string): Promise<void> {
     },
     { ...h, "X-Challenge-Id": challengeId },
   );
-  if (!r.ok) throw new HttpError(r.status);
+  if (!r.ok) throw await httpError(r);
   await takeToken(r);
 }
 
@@ -193,7 +213,7 @@ export async function* chat(
     setToken("");
     throw new Error("unauthorized");
   }
-  if (!r.ok || !r.body) throw new HttpError(r.status);
+  if (!r.ok || !r.body) throw await httpError(r);
   const reader = r.body.getReader();
   const dec = new TextDecoder();
   let buf = "";
@@ -240,7 +260,7 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
     setToken("");
     throw new Error("unauthorized");
   }
-  if (!r.ok) throw new HttpError(r.status);
+  if (!r.ok) throw await httpError(r);
   return r.json() as Promise<T>;
 }
 
@@ -286,14 +306,14 @@ export async function uploadImage(file: Blob, name = ""): Promise<UploadInfo> {
     setToken("");
     throw new Error("unauthorized");
   }
-  if (!r.ok) throw new HttpError(r.status); // 413 too large, 415 not an image, 502 storage down
+  if (!r.ok) throw await httpError(r); // 413 too large, 415 not an image, 502 storage down
   return r.json();
 }
 
 /** GET /uploads/{id} as a blob URL for <img src>. Revoke it with URL.revokeObjectURL when done. */
 export async function getUploadUrl(id: string): Promise<string> {
   const r = await fetch(`${API}/uploads/${encodeURIComponent(id)}`, { headers: authHeader() });
-  if (!r.ok) throw new HttpError(r.status);
+  if (!r.ok) throw await httpError(r);
   return URL.createObjectURL(await r.blob());
 }
 
@@ -325,3 +345,57 @@ export const githubFiles = (repo: string, path = "") =>
 /** GET /github/file — text files up to 200 KB; 403 for secret-looking files, 413 too large, 415 binary. */
 export const githubFile = (repo: string, path: string) =>
   api<GithubFile>("GET", `/github/file?repo=${encodeURIComponent(repo)}&path=${encodeURIComponent(path)}`);
+
+// ---- projects ----
+
+export type ProjectFile = { name: string; content: string };
+/** List entry of GET /projects (newest first). */
+export type ProjectMeta = {
+  id: string;
+  name: string;
+  instructions_preview: string;
+  files: string[];
+  created: number;
+  updated: number;
+};
+export type Project = { id: string; name: string; instructions: string; files: ProjectFile[]; created: number; updated: number };
+
+/** GET /projects */
+export const listProjects = () => api<{ projects: ProjectMeta[] }>("GET", "/projects").then((d) => d.projects);
+/** POST /projects — limits: 10 files, 20,000 chars per file, 100,000 in total (413), name 60 chars (400). */
+export const createProject = (name: string, instructions = "", files: ProjectFile[] = []) =>
+  api<Project>("POST", "/projects", { name, instructions, files });
+/** GET /projects/{id} */
+export const getProject = (id: string) => api<Project>("GET", `/projects/${encodeURIComponent(id)}`);
+/** PUT /projects/{id} — send only the fields to change; `files` replaces the whole list. */
+export const updateProject = (id: string, patch: { name?: string; instructions?: string; files?: ProjectFile[] }) =>
+  api<Project>("PUT", `/projects/${encodeURIComponent(id)}`, patch);
+/** POST /projects/{id}/files — adds a file, or replaces the one with the same name. */
+export const addProjectFile = (id: string, file: ProjectFile) =>
+  api<Project>("POST", `/projects/${encodeURIComponent(id)}/files`, file);
+/** DELETE /projects/{id}/files/{name} — call only after the user confirmed in the UI. */
+export const removeProjectFile = (id: string, name: string) =>
+  api<Project>("DELETE", `/projects/${encodeURIComponent(id)}/files/${encodeURIComponent(name)}`);
+/** DELETE /projects/{id} — call only after the user confirmed in the UI. The project's chats are kept. */
+export const deleteProject = (id: string) => api<{ ok: true }>("DELETE", `/projects/${encodeURIComponent(id)}`);
+
+// ---- artifacts (code / HTML blocks saved from answers) ----
+
+export type ArtifactMeta = { id: string; title: string; language: string; chat_id: string; created: number; size: number };
+export type Artifact = ArtifactMeta & { content: string };
+/** Shape of `done.artifacts`: the artifacts saved from this answer. */
+export type ArtifactRef = { id: string; title: string; language: string };
+
+/** GET /artifacts?chat_id= (newest first) */
+export const listArtifacts = (chatId = "") =>
+  api<{ artifacts: ArtifactMeta[] }>("GET", `/artifacts${chatId ? `?chat_id=${encodeURIComponent(chatId)}` : ""}`).then((d) => d.artifacts);
+/** GET /artifacts/{id} */
+export const getArtifact = (id: string) => api<Artifact>("GET", `/artifacts/${encodeURIComponent(id)}`);
+/** DELETE /artifacts/{id} — call only after the user confirmed in the UI. */
+export const deleteArtifact = (id: string) => api<{ ok: true }>("DELETE", `/artifacts/${encodeURIComponent(id)}`);
+
+/**
+ * Fields the server adds to the `done` event that chat() does not surface yet:
+ * `project_id` (string | null) and `artifacts` (ArtifactRef[]). See server/HANDOFF.md.
+ */
+export type ChatDoneExtras = { project_id: string | null; artifacts: ArtifactRef[] };
