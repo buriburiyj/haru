@@ -17,12 +17,16 @@ NVIDIA_MODELS = [
 ]
 
 
-def models() -> list:
-    """Selectable models for the UI (id, label, provider)."""
+def _catalog() -> list:
     out = [{"id": GROQ_MODEL, "label": GROQ_MODEL.split("/")[-1], "provider": "groq"}]
     out += [{"id": m, "label": m, "provider": "codex"} for m in CODEX_MODELS]
     out += [{"id": m, "label": m.split("/")[-1], "provider": "nvidia"} for m in NVIDIA_MODELS]
     return out
+
+
+def models() -> list:
+    """Models for the UI picker: automatic first, then Groq, the 3 Codex models, the NVIDIA models."""
+    return [{"id": "auto", "label": "자동", "provider": "auto"}] + _catalog()
 
 
 VISION_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"  # used when a message has images; not in the picker
@@ -31,7 +35,7 @@ VISION_MODEL = "nvidia/nemotron-3.5-super-vl-120b-a12b"  # used when a message h
 def _provider(model: str):
     if model == VISION_MODEL:
         return "nvidia"
-    for m in models():
+    for m in _catalog():  # "auto" is not a model
         if m["id"] == model:
             return m["provider"]
     return None

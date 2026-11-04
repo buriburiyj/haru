@@ -80,9 +80,22 @@ class RouterTest(unittest.TestCase):
         out = self.run_route(router.NVIDIA_MODELS[1])
         self.assertEqual(out, [("notice", "All models unavailable")])
 
-    def test_models_list_has_providers(self):
-        provs = {m["provider"] for m in router.models()}
-        self.assertEqual(provs, {"groq", "codex", "nvidia"})
+    def test_models_list_is_auto_groq_codex_nvidia_only(self):
+        ms = router.models()
+        self.assertEqual(ms[0], {"id": "auto", "label": "자동", "provider": "auto"})
+        self.assertEqual([m["provider"] for m in ms],
+                         ["auto", "groq", "codex", "codex", "codex", "nvidia", "nvidia", "nvidia"])
+        self.assertEqual([m["id"] for m in ms if m["provider"] == "codex"],
+                         ["gpt-6-luna", "gpt-5.6-terra", "gpt-5.6-luna"])
+        names = " ".join(m["id"] for m in ms)
+        for gone in ("kimi", "glm", "llama-3.1-8b"):
+            self.assertNotIn(gone, names)
+        self.assertEqual(len({m["id"] for m in ms}), len(ms))
+
+    def test_auto_is_not_a_direct_model(self):
+        patch_client(lambda req: httpx.Response(200, text=sse("x")))
+        out = self.run_route("auto")  # goes through classification, not a model called "auto"
+        self.assertTrue(any(k == "delta" for k, _ in out))
 
     def test_classify_defaults_hard_on_error(self):
         patch_client(lambda req: httpx.Response(500))
