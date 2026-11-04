@@ -4,6 +4,8 @@ import os
 import asyncio
 import httpx
 
+import codex
+
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 NVIDIA_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-20b")
@@ -97,12 +99,6 @@ async def _stream_openai(client, url, key_name, model, messages):
                 yield delta
 
 
-async def _stream_codex(client, model, messages):
-    # TODO: Codex transport is decided after the Stage 0 exam.
-    raise QuotaError("codex not implemented")
-    yield ""  # pragma: no cover
-
-
 async def route(messages: list, mode: str = "auto"):
     """Async generator of (kind, value).
     kind: 'model' (id of the model that is answering), 'delta' (answer text),
@@ -110,23 +106,31 @@ async def route(messages: list, mode: str = "auto"):
     async with httpx.AsyncClient() as client:
         direct = _provider(mode)
         if direct:
-            chain = [(direct, mode)]  # user picked a model: no fallback
+            chain = [(direct, [mode] if direct == "codex" else mode)]  # user picked a model: no fallback
         else:
             level = await classify(client, messages) if mode == "auto" else mode
             nvidia = [("nvidia", m) for m in NVIDIA_MODELS]
             if level == "easy":
                 chain = [("groq", GROQ_MODEL)] + nvidia
             else:
-                chain = [("codex", m) for m in CODEX_MODELS] + nvidia
+                chain = [("codex", CODEX_MODELS)] + nvidia  # one Actions run tries the 3 models in order
         for prov, model in chain:
+            if prov == "codex":
+                try:
+                    async for kind, value in codex.run(messages, model):
+                        yield kind, value
+                    return
+                except (codex.CodexUnavailable, httpx.HTTPError) as e:
+                    codex.log.warning("codex unavailable: %s", e)
+                    if len(chain) > 1:
+                        yield "notice", "Codex를 쓸 수 없어서 다른 모델로 답해요."
+                    continue
             started = False
             try:
                 if prov == "groq":
                     gen = _stream_openai(client, GROQ_URL, "GROQ_API_KEY", model, messages)
-                elif prov == "nvidia":
-                    gen = _stream_openai(client, NVIDIA_URL, "NVIDIA_API_KEY", model, messages)
                 else:
-                    gen = _stream_codex(client, model, messages)
+                    gen = _stream_openai(client, NVIDIA_URL, "NVIDIA_API_KEY", model, messages)
                 async for d in gen:
                     if not started:
                         started = True

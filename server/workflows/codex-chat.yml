@@ -1,0 +1,58 @@
+# Copy to buriburiyj/jun-files/.github/workflows/codex-chat.yml (PRIVATE repo only).
+# Needs secret CODEX_AUTH_JSON (same one codex-auth-test.yml uses). Started by haru-server via workflow_dispatch.
+# Reads .agent/jobs/<job>.json {prompt, models}, tries the models in order inside ONE run, and commits
+# .agent/jobs/<job>.out.json {ok, model, text, tried}. The server reads it, then deletes both files.
+name: codex-chat
+on:
+  workflow_dispatch:
+    inputs:
+      job:
+        description: job id (12 hex chars)
+        required: true
+permissions:
+  contents: write
+concurrency:
+  group: codex-chat
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      JOB_ID: ${{ inputs.job }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate job id
+        run: |
+          [[ "$JOB_ID" =~ ^[0-9a-f]{12}$ ]] || { echo "bad job id"; exit 1; }
+          test -f ".agent/jobs/$JOB_ID.json"
+      - run: npm i -g @openai/codex
+      - name: Write Codex auth
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: |
+          mkdir -p ~/.codex && printf '%s' "$CODEX_AUTH_JSON" > ~/.codex/auth.json && chmod 600 ~/.codex/auth.json
+      - name: Ask Codex (models in order)
+        run: |
+          set -u
+          f=".agent/jobs/$JOB_ID.json"; out=".agent/jobs/$JOB_ID.out.json"
+          prompt=$(jq -r .prompt "$f")
+          tried='[]'; ok=""
+          for m in $(jq -r '.models[]' "$f"); do
+            [[ "$m" =~ ^[A-Za-z0-9._-]+$ ]] || continue
+            if timeout 240 codex exec -m "$m" --skip-git-repo-check --sandbox read-only \
+                 -o /tmp/last.txt "$prompt" </dev/null >/tmp/codex.log 2>&1 && [ -s /tmp/last.txt ]; then
+              jq -n --arg m "$m" --rawfile t /tmp/last.txt --argjson tried "$tried" \
+                '{ok:true, model:$m, text:$t, tried:$tried}' > "$out"
+              ok=1; break
+            fi
+            tried=$(jq -c --arg m "$m" '. + [$m]' <<<"$tried")
+          done
+          [ -n "$ok" ] || jq -n --argjson tried "$tried" '{ok:false, tried:$tried}' > "$out"
+      - name: Commit result
+        run: |
+          git config user.name "haru-codex"; git config user.email "haru-codex@users.noreply.github.com"
+          git add ".agent/jobs/$JOB_ID.out.json"
+          git commit -m "codex result $JOB_ID"
+          for i in 1 2 3 4 5; do git push && exit 0; git pull --rebase; done
+          exit 1
