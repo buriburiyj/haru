@@ -16,9 +16,11 @@ export const MY_SKILLS: SkillItem[] = [
 
 export const MY_CONNECTORS: ConnectorItem[] = [
   { name: "Gmail", description: "메일을 읽고 찾습니다.", type: "웹", connected: true },
-  { name: "GitHub", description: "저장소와 이슈를 다룹니다.", type: "웹", connected: false },
   { name: "Filesystem", description: "맥의 폴더를 읽습니다.", type: "로컬", connected: true },
 ];
+
+/** GitHub status is real (githubRepos()), so this row has no `connected` flag. */
+export const GITHUB_CONNECTOR: Omit<ConnectorItem, "connected"> = { name: "GitHub", description: "저장소를 읽기 전용으로 봅니다.", type: "웹" };
 
 export const MY_PLUGINS: PluginItem[] = [];
 

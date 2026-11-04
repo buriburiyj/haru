@@ -1,11 +1,51 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getUploadUrl } from "../../api";
 import ActionButton, { copyText } from "./ActionButton";
 import BranchSwitcher from "./BranchSwitcher";
 import { Button, Textarea, UserBubble } from "../ui";
 
 // Edited versions are kept locally for now (old versions are never deleted).
 // Later the real branch tree comes from the chat file via useChat.
-export default function UserMessage({ content, time }: { content: string; time?: string }) {
+function Photos({ ids }: { ids: string[] }) {
+  const [urls, setUrls] = useState<(string | null)[]>([]);
+  const key = ids.join(",");
+  useEffect(() => {
+    let alive = true;
+    const made: string[] = [];
+    setUrls([]);
+    ids.forEach((id, i) => {
+      getUploadUrl(id)
+        .then((u) => {
+          if (!alive) return URL.revokeObjectURL(u);
+          made.push(u);
+          setUrls((a) => Object.assign([...a], { [i]: u }));
+        })
+        .catch(() => alive && setUrls((a) => Object.assign([...a], { [i]: null })));
+    });
+    return () => {
+      alive = false;
+      made.forEach((u) => URL.revokeObjectURL(u));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key]);
+  return (
+    <div className="flex flex-wrap justify-end gap-2">
+      {ids.map((id, i) =>
+        urls[i] ? (
+          <img key={id + i} src={urls[i]!} alt="첨부한 사진" className="size-20 rounded-control object-cover" />
+        ) : urls[i] === null ? (
+          <span key={id + i} className="text-xs text-muted">
+            사진을 불러오지 못했습니다
+          </span>
+        ) : (
+          <span key={id + i} className="size-20 animate-pulse rounded-control bg-surface-2" aria-hidden="true" />
+        ),
+      )}
+    </div>
+  );
+}
+
+export default function UserMessage({ content, time, images }: { content: string; time?: string; images?: string[] }) {
   const [versions, setVersions] = useState<string[]>([content]);
   const [idx, setIdx] = useState(1);
   const [editing, setEditing] = useState(false);
@@ -26,6 +66,7 @@ export default function UserMessage({ content, time }: { content: string; time?:
 
   return (
     <div className="group flex flex-col items-end gap-1">
+      {images && images.length > 0 && <Photos ids={images} />}
       {editing ? (
         <div className="w-full max-w-5/6">
           <Textarea

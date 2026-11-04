@@ -1,29 +1,44 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { logout } from "./api";
+import { useAttachments } from "./hooks/useAttachments";
 import { useAuth } from "./hooks/useAuth";
 import { useChat } from "./hooks/useChat";
+import { useChatList } from "./hooks/useChatList";
+import { useModels } from "./hooks/useModels";
 import Sidebar from "./components/Sidebar";
 import Welcome from "./components/Welcome";
 import Composer from "./components/Composer";
 import ChatView from "./components/ChatView";
 import LoginScreen from "./components/LoginScreen";
+import { useTempChat } from "./components/temp/TempChat";
 import type { Effort, ModelId, Mode } from "./types";
-
-const MODEL_LABELS: Record<string, string> = {
-  auto: "자동",
-  "gpt-6-luna": "GPT-6 Luna",
-  "gpt-5.6-terra": "GPT-5.6 Terra",
-  "gpt-5.6-luna": "GPT-5.6 Luna",
-  fast: "빠른 답변",
-};
 
 export default function App() {
   const auth = useAuth();
-  const chat = useChat(() => auth.setAuthed(false));
+  const authed = auth.authed === true;
+  const onUnauthorized = useCallback(() => auth.setAuthed(false), [auth.setAuthed]);
+  const list = useChatList(authed);
+  const models = useModels(authed);
+  const chat = useChat(onUnauthorized, list.refresh);
+  const photos = useAttachments(onUnauthorized);
+  const temp = useTempChat();
   const [text, setText] = useState("");
   const [model, setModel] = useState<ModelId>("auto");
   const [effort, setEffort] = useState<Effort>("medium");
   const [mode, setMode] = useState<Mode>("chat");
+  const [web, setWeb] = useState(true);
   const [drawer, setDrawer] = useState(false);
+
+  // Switching temporary chat on or off starts a fresh conversation (a saved chat never turns temporary half way).
+  const firstTemp = useRef(true);
+  useEffect(() => {
+    if (firstTemp.current) {
+      firstTemp.current = false;
+      return;
+    }
+    chat.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [temp]);
 
   if (auth.authed === null) return <main className="h-full" />;
   if (!auth.authed) {
@@ -32,8 +47,10 @@ export default function App() {
 
   const submit = () => {
     const t = text;
+    const images = photos.readyIds;
     setText("");
-    void chat.send(t);
+    photos.clear();
+    void chat.send(t, { mode: model, web: web ? "auto" : "off", images });
   };
 
   const composer = (
@@ -51,16 +68,30 @@ export default function App() {
       mode={mode}
       onModeChange={setMode}
       hideModeSwitch={chat.msgs.length > 0}
+      models={models}
+      attachments={photos.attachments}
+      onAttach={photos.add}
+      onRemoveAttachment={photos.remove}
+      attachNotice={photos.notice}
+      web={web}
+      onWebChange={setWeb}
     />
   );
 
   return (
     <div className="flex h-full bg-bg text-fg">
       <Sidebar
-        recent={[]}
+        chats={list.chats}
+        activeId={chat.chatId}
+        onOpenChat={(id) => void chat.open(id)}
+        onDeleteChats={chat.removeChats}
+        searchChats={list.search}
         onNew={chat.reset}
         userName="준"
-        onLogout={() => auth.setAuthed(false)}
+        onLogout={() => {
+          logout();
+          auth.setAuthed(false);
+        }}
         open={drawer}
         onClose={() => setDrawer(false)}
       />
@@ -70,12 +101,16 @@ export default function App() {
         ) : (
           <ChatView
             msgs={chat.msgs}
+            metas={chat.metas}
+            models={models}
             busy={chat.busy}
             notice={chat.notice}
-            title="새 대화"
-            modelLabel={MODEL_LABELS[model] ?? model}
+            title={chat.title || (temp ? "임시 채팅" : "새 대화")}
+            modelLabel={models.find((m) => m.id === model)?.label ?? model}
             composer={composer}
             onMenu={() => setDrawer(true)}
+            onRename={chat.chatId ? (t) => void chat.rename(t) : undefined}
+            onDelete={chat.chatId ? () => void chat.removeChats([chat.chatId as string]) : undefined}
           />
         )}
       </main>

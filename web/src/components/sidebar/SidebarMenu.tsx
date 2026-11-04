@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
-import type { ChatHistoryItem } from "../../types";
+import type { ChatRow } from "../chat/dataTypes";
 import { Button, IconButton } from "../ui";
 import {
   ArtifactIcon,
@@ -22,7 +22,17 @@ function MenuItem({ icon, label, onClick }: { icon: ReactNode; label: string; on
   );
 }
 
-export default function SidebarMenu({ recent, onNew }: { recent: ChatHistoryItem[]; onNew: () => void }) {
+export default function SidebarMenu({
+  chats,
+  activeId,
+  onNew,
+  onOpenChat,
+}: {
+  chats: ChatRow[];
+  activeId?: string;
+  onNew: () => void;
+  onOpenChat: (id: string) => void;
+}) {
   const [expanded, setExpanded] = useState(true);
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
@@ -55,8 +65,15 @@ export default function SidebarMenu({ recent, onNew }: { recent: ChatHistoryItem
         </button>
         {expanded && (
           <>
-            {recent.slice(0, 7).map((c) => (
-              <Button key={c.id} variant="ghost" className={itemCls + " justify-between"}>
+            {chats.length === 0 && <p className="px-2 py-1 text-xs text-muted">아직 대화가 없습니다</p>}
+            {chats.slice(0, 7).map((c) => (
+              <Button
+                key={c.id}
+                variant="ghost"
+                onClick={() => onOpenChat(c.id)}
+                aria-current={c.id === activeId ? "true" : undefined}
+                className={itemCls + " justify-between" + (c.id === activeId ? " bg-surface-2" : "")}
+              >
                 <span className="truncate">{c.title}</span>
                 <span className="shrink-0 text-xs text-muted">{c.when}</span>
               </Button>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { ChatHistoryItem } from "../types";
+import type { ChatRow } from "./chat/dataTypes";
 import SidebarMenu from "./sidebar/SidebarMenu";
 import UserMenu from "./sidebar/UserMenu";
 import Overlays from "./Overlays";
@@ -7,7 +7,11 @@ import { IconButton } from "./ui";
 import { BackIcon, ChatIcon, CodeIcon, ForwardIcon, PanelIcon } from "./sidebar/icons";
 
 export type SidebarProps = {
-  recent: ChatHistoryItem[];
+  chats: ChatRow[];
+  activeId?: string;
+  onOpenChat: (id: string) => void;
+  onDeleteChats: (ids: string[]) => void | Promise<void>;
+  searchChats: (q: string) => Promise<ChatRow[]>;
   onNew: () => void;
   userName: string;
   onLogout: () => void;
@@ -26,7 +30,7 @@ const CLOSE_DRAWER_EVENTS = [
   "haru:new-project",
 ];
 
-export default function Sidebar({ recent, onNew: onNewProp, userName, onLogout, open: openProp, onClose: onCloseProp }: SidebarProps) {
+export default function Sidebar({ chats, activeId, onOpenChat, onDeleteChats, searchChats, onNew: onNewProp, userName, onLogout, open: openProp, onClose: onCloseProp }: SidebarProps) {
   const [tab, setTab] = useState<"chat" | "code">("chat");
   // The first screen has its own ☰ button, which asks the drawer to open through an event.
   const [local, setLocal] = useState(false);
@@ -59,7 +63,7 @@ export default function Sidebar({ recent, onNew: onNewProp, userName, onLogout, 
 
   return (
     <>
-      <Overlays />
+      <Overlays chats={chats} onOpenChat={onOpenChat} onDeleteChats={onDeleteChats} searchChats={searchChats} />
       <div
         onClick={onClose}
         className={
@@ -92,7 +96,15 @@ export default function Sidebar({ recent, onNew: onNewProp, userName, onLogout, 
             </button>
           </div>
         </div>
-        <SidebarMenu recent={recent} onNew={onNewProp} />
+        <SidebarMenu
+          chats={chats}
+          activeId={activeId}
+          onNew={onNewProp}
+          onOpenChat={(id) => {
+            onOpenChat(id);
+            onClose();
+          }}
+        />
         <UserMenu userName={userName} onLogout={onLogout} />
       </aside>
     </>

@@ -1,20 +1,15 @@
 import { useState } from "react";
+import type { ModelInfo } from "../../api";
 import type { Effort, ModelId } from "../../types";
 import { Chip, Menu, MenuDivider, MenuItem, SubMenu, WarningIcon } from "../ui";
 import { useDismiss } from "./ui";
 
-const MODELS: { id: ModelId; label: string; desc: string }[] = [
-  { id: "auto", label: "자동(기본)", desc: "상황에 맞는 모델을 자동으로 선택" },
-  { id: "gpt-6-luna", label: "GPT-6 Luna", desc: "가장 똑똑한 모델, 복잡한 작업에 적합" },
-  { id: "gpt-5.6-terra", label: "GPT-5.6 Terra", desc: "균형 잡힌 일상용 모델" },
-  { id: "gpt-5.6-luna", label: "GPT-5.6 Luna", desc: "가볍고 빠른 응답" },
-  { id: "fast", label: "빠른 답변(Groq)", desc: "가장 빠르게 짧은 답변" },
-];
-const MORE: { id: ModelId; label: string }[] = [
-  { id: "nemotron-3-ultra", label: "Nemotron 3 Ultra" },
-  { id: "mistral-large-4", label: "Mistral Large 4" },
-  { id: "deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" },
-];
+const HINT: Record<string, string> = {
+  auto: "알아서 골라 줍니다",
+  groq: "빠른 답변",
+  codex: "어려운 질문과 코딩",
+  nvidia: "무료 한도를 다 쓰면 대신 답합니다",
+};
 const EFFORTS: { id: Effort; label: string; hint?: string }[] = [
   { id: "low", label: "낮음" },
   { id: "medium", label: "보통(추천)" },
@@ -22,15 +17,13 @@ const EFFORTS: { id: Effort; label: string; hint?: string }[] = [
   { id: "max", label: "최대", hint: "사용량이 많습니다" },
 ];
 
-export function modelLabel(id: ModelId): string {
-  return [...MODELS, ...MORE].find((m) => m.id === id)?.label ?? id;
-}
-
 export default function ModelMenu({
   model,
   effort,
+  models,
   onModelChange,
 }: {
+  models: ModelInfo[];
   model: ModelId;
   effort: Effort;
   onModelChange: (m: ModelId, e: Effort) => void;
@@ -45,15 +38,19 @@ export default function ModelMenu({
     close();
   };
 
+  const main = models.filter((m) => m.provider !== "nvidia");
+  const more = models.filter((m) => m.provider === "nvidia");
+  const label = models.find((m) => m.id === model)?.label ?? model;
+
   return (
     <div ref={ref} className="relative">
       <Chip caret aria-expanded={open} onClick={() => (open ? close() : setOpen(true))}>
-        {modelLabel(model)}
+        {label}
       </Chip>
       {open && (
         <Menu className="absolute bottom-full right-0 z-20 mb-2 w-72">
-          {MODELS.map((m) => (
-            <MenuItem key={m.id} hint={m.desc} check={m.id === model} onClick={() => pick(m.id, effort)}>
+          {main.map((m) => (
+            <MenuItem key={m.id} hint={HINT[m.provider]} check={m.id === model} onClick={() => pick(m.id, effort)}>
               {m.label}
             </MenuItem>
           ))}
@@ -65,13 +62,15 @@ export default function ModelMenu({
               </MenuItem>
             ))}
           </SubMenu>
+          {more.length > 0 && (
           <SubMenu label="더 많은 모델" side="left">
-            {MORE.map((m) => (
-              <MenuItem key={m.id} check={m.id === model} onClick={() => pick(m.id, effort)}>
+            {more.map((m) => (
+              <MenuItem key={m.id} hint={HINT.nvidia} check={m.id === model} onClick={() => pick(m.id, effort)}>
                 {m.label}
               </MenuItem>
             ))}
           </SubMenu>
+          )}
           <p className="px-3 py-2 text-xs text-muted">무료 한도를 모두 쓰면 다른 모델로 자동 전환됩니다.</p>
         </Menu>
       )}

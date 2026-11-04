@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Msg } from "../types";
+import type { ModelInfo } from "../api";
+import { formatModelName } from "./chat/dataTypes";
+import type { MsgMeta } from "./chat/dataTypes";
 import ArtifactPanel from "./artifact/ArtifactPanel";
 import PermissionCard, { demoPermission } from "./permission/PermissionCard";
 import { TempChatBanner } from "./temp/TempChat";
@@ -20,13 +23,17 @@ export type ChatViewProps = {
   /** the <Composer/> element, pinned to the bottom */
   composer: ReactNode;
   onMenu: () => void;
-  /** model name per message index (same order as msgs), e.g. "자동 · Groq"; optional */
-  modelNames?: (string | undefined)[];
+  /** extra data per message, parallel to msgs (model, sources) */
+  metas?: (MsgMeta | undefined)[];
+  /** model list, used to show the model name under answers */
+  models?: ModelInfo[];
+  /** called with the new title after the user saves the rename dialog */
+  onRename?: (title: string) => void;
   /** called only after the user confirms deletion of this chat */
   onDelete?: () => void;
 };
 
-export default function ChatView({ msgs, busy, notice, title, modelLabel, composer, onMenu, modelNames, onDelete }: ChatViewProps) {
+export default function ChatView({ msgs, busy, notice, title, modelLabel, composer, onMenu, metas, models, onRename, onDelete }: ChatViewProps) {
   const endRef = useRef<HTMLDivElement>(null);
   const [artifact, setArtifact] = useState<ArtifactData | null>(null);
   // Example request for the card; shown only with ?demo=permission (or permission-delete). Real requests come from the server later.
@@ -39,7 +46,7 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
   return (
     <div className="flex h-full bg-bg text-fg">
     <div className="flex min-w-0 flex-1 flex-col">
-      <TopBar title={title} onMenu={onMenu} onDelete={onDelete} />
+      <TopBar title={title} onMenu={onMenu} onDelete={onDelete} onRename={onRename} />
       <TempChatBanner />
       <CopyToast />
       <div className="relative min-h-0 flex-1">
@@ -49,18 +56,24 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
           {msgs.map((m, i) =>
             m.role === "user" ? (
-              <UserMessage key={i} content={m.content} />
+              <UserMessage key={i} content={m.content} images={m.images} />
             ) : (
               <AssistantMessage
                 key={i}
                 content={m.content}
                 pending={busy && i === msgs.length - 1}
                 onOpenArtifact={setArtifact}
-                modelName={modelNames?.[i]}
+                modelName={formatModelName(metas?.[i]?.model, metas?.[i]?.auto, models ?? [])}
+                sources={metas?.[i]?.sources}
               />
             ),
           )}
-          {notice && <p className="text-xs text-muted">{notice}</p>}
+          {notice && (
+            <p role="status" className="flex items-center gap-2 text-xs text-muted">
+              {busy && <span className="inline-block size-2 animate-pulse rounded-pill bg-muted" aria-hidden="true" />}
+              {notice}
+            </p>
+          )}
           <div ref={endRef} />
         </div>
         </div>

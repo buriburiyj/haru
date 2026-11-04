@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import CustomizePanel from "../customize/CustomizePanel";
 import type { Kind } from "../customize/sample";
 import { Button, Card, IconButton, Input, Tabs, cx } from "../ui";
+import MemoryPanel from "./MemoryPanel";
+import UsagePanel from "./UsagePanel";
 import { FONTS, FONT_SIZES, THEMES, getFont, getFontSize, getTheme, setFont, setFontSize, setTheme } from "./appearance";
 
 type Row =
@@ -67,7 +69,6 @@ const PAGES: Page[] = [
     title: "메모리",
     rows: [
       { label: "메모리 생성", kind: "toggle", on: true },
-      { label: "기억 목록", kind: "button", text: "보기" },
     ],
   },
   {
@@ -84,6 +85,11 @@ const PAGES: Page[] = [
       { label: "방해 금지 요일", kind: "value", value: "토, 일" },
       { label: "방해 금지 시간", kind: "value", value: "22:00 - 07:00" },
     ],
+  },
+  {
+    id: "usage",
+    title: "사용량",
+    rows: [],
   },
   {
     id: "code",
@@ -142,7 +148,7 @@ const PAGES: Page[] = [
 ];
 
 const GROUPS: { name: string; ids: string[]; macOnly?: boolean }[] = [
-  { name: "환경설정", ids: ["general", "account", "privacy", "features", "memory", "recap", "focus", "code"] },
+  { name: "환경설정", ids: ["general", "account", "privacy", "features", "memory", "recap", "focus", "usage", "code"] },
   { name: "이 기기", ids: ["system", "developer"], macOnly: true },
   { name: "사용자 지정", ids: ["skills", "connectors", "plugins"] },
 ];
@@ -285,6 +291,7 @@ export default function SettingsDialog({
           {(page.id === "skills" || page.id === "connectors" || page.id === "plugins") && (
             <CustomizePanel kind={page.id as Kind} hideTitle />
           )}
+          {page.id === "usage" && <UsagePanel />}
           {page.id !== "skills" && page.id !== "connectors" && page.id !== "plugins" && page.rows.length === 0 && page.empty && (
             <Card className="p-6 text-center text-sm text-muted">{page.empty}</Card>
           )}
@@ -299,6 +306,7 @@ export default function SettingsDialog({
               </div>
             ))}
           </div>
+          {page.id === "memory" && <MemoryPanel />}
         </section>
       </div>
     </div>

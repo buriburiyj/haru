@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { githubRepos } from "../../api";
 import { Button, Card, IconButton, Input, Menu, MenuItem, Tabs } from "../ui";
 import {
   EXPLORE_CONNECTORS,
   EXPLORE_PLUGINS,
   EXPLORE_SKILLS,
   KIND_LABEL,
+  GITHUB_CONNECTOR,
   KIND_NOUN,
   MY_CONNECTORS,
   MY_PLUGINS,
@@ -72,7 +74,9 @@ function SkillList({ items }: { items: SkillItem[] }) {
   );
 }
 
-function ConnectorTable({ items }: { items: ConnectorItem[] }) {
+type GithubState = { status: "loading" } | { status: "ok"; count: number } | { status: "off" };
+
+function ConnectorTable({ items, github }: { items: ConnectorItem[]; github: GithubState }) {
   return (
     <div className="overflow-x-auto">
       <table className="w-full min-w-80 text-sm">
@@ -89,7 +93,21 @@ function ConnectorTable({ items }: { items: ConnectorItem[] }) {
               <td className="py-3 text-fg">{c.name}</td>
               <td className="py-3 text-muted">{c.type}</td>
               <td className="py-3 text-right">
-                {c.connected ? (
+                {c.name === GITHUB_CONNECTOR.name ? (
+                  github.status === "loading" ? (
+                    <span className="text-muted">확인 중…</span>
+                  ) : github.status === "ok" ? (
+                    <span className="text-accent">
+                      ✓ 연결됨 (읽기 전용)
+                      <span className="ml-2 text-xs text-muted">저장소 {github.count}개</span>
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-2">
+                      <span className="text-muted">연결 안 됨</span>
+                      <Button className="text-xs">연결</Button>
+                    </span>
+                  )
+                ) : c.connected ? (
                   <span className="text-accent" aria-label="연결됨">
                     ✓
                   </span>
@@ -170,6 +188,21 @@ export default function CustomizePanel({ kind, onKindChange, hideTitle = false }
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("name");
   const [addOpen, setAddOpen] = useState(false);
+  const [github, setGithub] = useState<GithubState>({ status: "loading" });
+
+  useEffect(() => {
+    if (kind !== "connectors") return;
+    let alive = true;
+    setGithub({ status: "loading" });
+    githubRepos().then(
+      (repos) => alive && setGithub({ status: "ok", count: repos.length }),
+      () => alive && setGithub({ status: "off" }),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [kind]);
+  const myConnectors: ConnectorItem[] = useMemo(() => [...MY_CONNECTORS, { ...GITHUB_CONNECTOR, connected: false }], []);
 
   const q = query.trim().toLowerCase();
   const match = (s: string) => s.toLowerCase().includes(q);
@@ -177,12 +210,12 @@ export default function CustomizePanel({ kind, onKindChange, hideTitle = false }
 
   const mine = useMemo(() => {
     if (kind === "skills") return byName(MY_SKILLS.filter((s) => match(s.name + s.description)));
-    if (kind === "connectors") return byName(MY_CONNECTORS.filter((c) => match(c.name + c.description)));
+    if (kind === "connectors") return byName(myConnectors.filter((c) => match(c.name + c.description)));
     return byName(MY_PLUGINS.filter((p) => match(p.name + p.description)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, q, sort]);
   const cards = exploreCards(kind).filter((c) => match(c.name + c.description));
-  const totalMine = kind === "skills" ? MY_SKILLS.length : kind === "connectors" ? MY_CONNECTORS.length : MY_PLUGINS.length;
+  const totalMine = kind === "skills" ? MY_SKILLS.length : kind === "connectors" ? myConnectors.length : MY_PLUGINS.length;
 
   return (
     <div className="flex min-w-0 flex-col gap-4">
@@ -242,7 +275,7 @@ export default function CustomizePanel({ kind, onKindChange, hideTitle = false }
       ) : kind === "skills" ? (
         <SkillList items={mine as SkillItem[]} />
       ) : kind === "connectors" ? (
-        <ConnectorTable items={mine as ConnectorItem[]} />
+        <ConnectorTable items={mine as ConnectorItem[]} github={github} />
       ) : (
         <PluginList items={mine as PluginItem[]} />
       )}

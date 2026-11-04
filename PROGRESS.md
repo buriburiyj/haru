@@ -3,6 +3,8 @@
 Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 
 ## 진행 중
+- [창B] a378ecc: Codex 연결(GitHub Actions), /usage, 429 한 번 재시도 후 다른 모델, 읽기 전용 GitHub 커넥터(/github/*), 사진 업로드(/uploads), 기억 API(/memory), server/API.md 정리.
+- [창A] 2단계 Chat 기본 화면 연결 완료(빌드 통과, tsc 0 오류, 눈으로·실서버 확인 전): 대화 목록·검색(⌘K)·열기·이름 바꾸기·삭제(확인 창 거친 뒤에만 deleteChat), 새 대화는 done의 chatId/title, 답변 아래 모델 이름('자동 · Groq')과 출처 링크, notice는 진행 문구, 모델 메뉴는 getModels(맨 위 자동), 사진 업로드(3MB 안내, 미리보기, ✕), 임시 채팅은 temporary 전송, 설정 기억(목록·수정·삭제 확인)·사용량 페이지, 커넥터 표의 GitHub '연결됨(읽기 전용)'(githubRepos 결과). 훅: useChat(확장), useChatList, useModels, useAttachments. App.tsx는 허용 범위 밖이지만 연결에 필요해서 최소 수정함. 건너뜀: 노력(effort)은 서버가 받지 않아 화면에만 저장, ⌘U 단축키 표시 제거.
 - [창A] 글꼴 변경 완료(빌드 통과, 눈으로 확인 전): 본문·답변·메뉴·버튼 Pretendard 400, 답변 15px/줄 간격 1.6, 큰 제목(첫 화면 인사, 페이지 제목) Source Serif 4 300 + 마루 부리 ExtraLight 1개(400/700 파일 삭제), 설정 글꼴 기본/읽기/시스템(기본값 기본), SPEC '글꼴 확정' 교체. 👍👎 등 이모지 아이콘 6곳(앱 3: 👍 👎 ⚠, 데모 3: ★ ☁ ⎇)을 components/ui/icons.tsx 선 아이콘으로 교체, 좋아요/싫어요는 누르면 채워지고 다시 누르면 취소. 복사·다시 생성도 아이콘으로 바꿈.
 - [창A] 디자인 바탕 2차 완료(빌드·tsc 통과, 눈으로 확인 전): 모든 기존 화면을 components/ui/로 이전(사이드바, 첫 화면, 입력창, 대화, 설정, 검색, 사용자 지정, 채팅 목록, 프로젝트, 아티팩트, 로그인). mobile.css의 44px 일괄 규칙 삭제 -> ui 컴포넌트의 pointer-coarse 변형으로 처리. 직접 쓴 색/크기/모서리 grep 0건. 눈에 보이는 변화: 답변 글자가 읽기 글꼴(Reply), 삭제 확인 창이 Dialog(✕ 표시, 폰은 전체화면), 일부 호버 버튼 높이 36px. 남은 것: 사이드바 Chat/Code 아이콘 탭, 설정 스위치, 검색창 입력, OfflineNotice는 ui 컴포넌트가 없어 직접 작성 상태.
 - [창A] 1단계 1차 완료(빌드 통과, 실기기 확인 전): 디자인 토큰(styles/tokens.css, theme.css, fonts.css), 공통 컴포넌트(components/ui/), web/design/TOKENS.md, 확인 화면 /haru/?demo=ui(로그인·서버 없음). 글꼴: Pretendard 동적 서브셋, 마루 부리 400/700 + Source Serif 4 400/700 + JetBrains Mono 400, 라이선스 web/public/licenses/FONTS.md. 기존 화면 이전은 2차(승인 대기).

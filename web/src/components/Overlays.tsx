@@ -8,8 +8,17 @@ import ArtifactsPage from "./pages/ArtifactsPage";
 import NewProjectDialog from "./pages/NewProjectDialog";
 import { useVisualViewportHeight } from "./useVisualViewportHeight";
 import OfflineNotice from "./OfflineNotice";
+import type { ChatRow } from "./chat/dataTypes";
 
-export default function Overlays({ isMacApp = false }: { isMacApp?: boolean }) {
+export type OverlaysProps = {
+  isMacApp?: boolean;
+  chats: ChatRow[];
+  onOpenChat: (id: string) => void;
+  onDeleteChats: (ids: string[]) => void | Promise<void>;
+  searchChats: (q: string) => Promise<ChatRow[]>;
+};
+
+export default function Overlays({ isMacApp = false, chats, onOpenChat, onDeleteChats, searchChats }: OverlaysProps) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [customizeOpen, setCustomizeOpen] = useState(false);
@@ -75,9 +84,19 @@ export default function Overlays({ isMacApp = false }: { isMacApp?: boolean }) {
     <>
       <OfflineNotice />
       {settingsOpen && <SettingsDialog isMacApp={isMacApp} onClose={() => setSettingsOpen(false)} />}
-      {searchOpen && <SearchDialog onClose={() => setSearchOpen(false)} />}
+      {searchOpen && <SearchDialog chats={chats} searchChats={searchChats} onOpenChat={onOpenChat} onClose={() => setSearchOpen(false)} />}
       {customizeOpen && <CustomizeDialog onClose={() => setCustomizeOpen(false)} />}
-      {page === "chats" && <ChatListPage onClose={() => setPage(null)} />}
+      {page === "chats" && (
+        <ChatListPage
+          onClose={() => setPage(null)}
+          chats={chats.map((c) => ({ id: c.id, title: c.title, kind: "채팅" as const, when: c.when }))}
+          onOpen={(id) => {
+            onOpenChat(id);
+            setPage(null);
+          }}
+          onDelete={(ids) => void onDeleteChats(ids)}
+        />
+      )}
       {page === "projects" && <ProjectsPage onClose={() => setPage(null)} onCreate={() => setNewProject(true)} />}
       {page === "artifacts" && <ArtifactsPage onClose={() => setPage(null)} />}
       {newProject && <NewProjectDialog onClose={() => setNewProject(false)} />}

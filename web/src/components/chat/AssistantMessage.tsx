@@ -4,6 +4,7 @@ import ActionButton, { copyText } from "./ActionButton";
 import BranchSwitcher from "./BranchSwitcher";
 import Thinking from "./Thinking";
 import Markdown from "../markdown/Markdown";
+import type { Source } from "../../api";
 import type { ArtifactData } from "../artifact/types";
 import { CopyIcon, RefreshIcon, Reply, ThumbDownIcon, ThumbUpIcon } from "../ui";
 
@@ -40,6 +41,7 @@ export default function AssistantMessage({
   onBranchChange,
   onOpenArtifact,
   modelName,
+  sources,
 }: {
   content: string;
   pending: boolean;
@@ -49,6 +51,8 @@ export default function AssistantMessage({
   onOpenArtifact?: (a: ArtifactData) => void;
   /** which model answered, e.g. "자동 · Groq"; wired to the server data later */
   modelName?: string;
+  /** web search results / GitHub files used for the answer */
+  sources?: Source[];
 }) {
   // Like / dislike: pressing fills the icon, pressing again clears it (kept locally; sending the vote to the server comes later)
   const [vote, setVote] = useState<"up" | "down" | null>(null);
@@ -63,6 +67,23 @@ export default function AssistantMessage({
         pending && <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-pill bg-muted" aria-label="응답 중" />
       )}
       {content && !pending && modelName && <span className="text-xs text-muted">{modelName}</span>}
+      {content && !pending && sources && sources.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
+          <span>출처</span>
+          {sources.map((src, i) => (
+            <a
+              key={i}
+              href={src.url}
+              target="_blank"
+              rel="noreferrer noopener"
+              title={src.title}
+              className="max-w-48 truncate underline hover:text-fg-2"
+            >
+              {src.title || src.url}
+            </a>
+          ))}
+        </div>
+      )}
       {branches > 1 && <BranchSwitcher idx={branchIdx} total={branches} onChange={(n) => onBranchChange?.(n)} />}
       {content && (
         <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">

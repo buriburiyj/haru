@@ -3,7 +3,8 @@ import type { ComposerProps } from "../types";
 import ModeSwitch from "./composer/ModeSwitch";
 import ModelMenu from "./composer/ModelMenu";
 import PlusMenu from "./composer/PlusMenu";
-import { Button } from "./ui";
+import type { ComposerExtras } from "./chat/dataTypes";
+import { Button, IconButton } from "./ui";
 
 export default function Composer({
   value,
@@ -16,10 +17,16 @@ export default function Composer({
   mode,
   onModeChange,
   hideModeSwitch,
-}: ComposerProps) {
+  models,
+  attachments,
+  onAttach,
+  onRemoveAttachment,
+  attachNotice,
+  web,
+  onWebChange,
+}: ComposerProps & ComposerExtras) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const [focused, setFocused] = useState(false);
-  const [webSearch, setWebSearch] = useState(false);
 
   useEffect(() => {
     const el = ta.current;
@@ -28,7 +35,8 @@ export default function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }, [value]);
 
-  const canSend = !busy && value.trim().length > 0;
+  const uploading = attachments.some((a) => a.status === "uploading");
+  const canSend = !busy && !uploading && (value.trim().length > 0 || attachments.some((a) => a.status === "ready"));
 
   return (
     <form
@@ -38,6 +46,34 @@ export default function Composer({
         if (canSend) onSubmit();
       }}
     >
+      {attachments.length > 0 && (
+        <div className="mb-2">
+          <div className="flex flex-wrap gap-2">
+            {attachments.map((a) => (
+              <div key={a.key} className="relative size-16 overflow-hidden rounded-control border border-line bg-surface-2">
+                <img src={a.previewUrl} alt={a.name} className="size-16 object-cover" />
+                {a.status === "uploading" && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-bg/70 text-center text-xs text-fg">올리는 중</div>
+                )}
+                {a.status === "error" && (
+                  <div role="img" aria-label="올리지 못했습니다" className="absolute inset-0 flex items-center justify-center bg-bg/70 text-danger">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <circle cx="12" cy="12" r="9" />
+                      <path d="M12 8v5M12 16.5v.01" />
+                    </svg>
+                  </div>
+                )}
+                <IconButton label="사진 빼기" onClick={() => onRemoveAttachment(a.key)} className="absolute right-0 top-0 !size-6 bg-bg/70 text-xs">
+                  ✕
+                </IconButton>
+              </div>
+            ))}
+          </div>
+          {attachNotice && (
+            <p className={`mt-1 text-xs ${attachments.some((a) => a.status === "error") ? "text-danger" : "text-muted"}`}>{attachNotice}</p>
+          )}
+        </div>
+      )}
       <textarea
         ref={ta}
         rows={1}
@@ -56,10 +92,10 @@ export default function Composer({
         className="block w-full resize-none bg-transparent px-1 py-1 text-fg outline-none placeholder:text-muted"
       />
       <div className="mt-2 flex items-center gap-2">
-        <PlusMenu webSearch={webSearch} onToggleWebSearch={() => setWebSearch((v) => !v)} />
+        <PlusMenu webSearch={web} onToggleWebSearch={() => onWebChange(!web)} onAttach={onAttach} />
         <div className="flex-1" />
         {!hideModeSwitch && <ModeSwitch mode={mode} onChange={onModeChange} />}
-        <ModelMenu model={model} effort={effort} onModelChange={onModelChange} />
+        <ModelMenu models={models} model={model} effort={effort} onModelChange={onModelChange} />
         <Button type="submit" variant="primary" aria-label="보내기" disabled={!canSend} className="w-9 pointer-coarse:w-11 px-0">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M12 19V5M5 12l7-7 7 7" />

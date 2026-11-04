@@ -1,9 +1,27 @@
 import { useState } from "react";
 import { TempChatToggle } from "../temp/TempChat";
 import ConfirmDialog from "../confirm/ConfirmDialog";
-import { Button, IconButton, Menu, MenuItem } from "../ui";
+import { Button, Dialog, IconButton, Input, Menu, MenuItem } from "../ui";
 
-export default function TopBar({ title, onMenu, onDelete }: { title: string; onMenu: () => void; onDelete?: () => void }) {
+export default function TopBar({
+  title,
+  onMenu,
+  onDelete,
+  onRename,
+}: {
+  title: string;
+  onMenu: () => void;
+  onDelete?: () => void;
+  onRename?: (title: string) => void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [draft, setDraft] = useState("");
+  const saveName = () => {
+    const t = draft.trim();
+    if (!t) return;
+    setRenaming(false);
+    onRename?.(t);
+  };
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   return (
@@ -20,7 +38,7 @@ export default function TopBar({ title, onMenu, onDelete }: { title: string; onM
         </Button>
         {open && (
           <Menu className="absolute left-0 top-full z-10 mt-1 w-44">
-            <MenuItem onClick={() => setOpen(false)}>이름 변경</MenuItem>
+            <MenuItem onClick={() => { setOpen(false); if (onRename) { setDraft(title); setRenaming(true); } }}>이름 변경</MenuItem>
             <MenuItem onClick={() => setOpen(false)}>프로젝트로 이동</MenuItem>
             <MenuItem danger onClick={() => { setOpen(false); setConfirming(true); }}>삭제</MenuItem>
           </Menu>
@@ -28,6 +46,28 @@ export default function TopBar({ title, onMenu, onDelete }: { title: string; onM
       </div>
       <TempChatToggle />
       <Button variant="ghost">내보내기</Button>
+      {renaming && (
+        <Dialog
+          title="이름 변경"
+          onClose={() => setRenaming(false)}
+          footer={
+            <>
+              <Button onClick={() => setRenaming(false)}>취소</Button>
+              <Button variant="primary" disabled={!draft.trim()} onClick={saveName}>
+                저장
+              </Button>
+            </>
+          }
+        >
+          <Input
+            autoFocus
+            aria-label="채팅 이름"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && saveName()}
+          />
+        </Dialog>
+      )}
       {confirming && (
         <ConfirmDialog
           title="이 채팅을 삭제할까요?"
