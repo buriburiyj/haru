@@ -17,6 +17,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
 import router
+import search
 import storage
 
 log = logging.getLogger("uvicorn.error")
@@ -276,11 +277,19 @@ async def chat(request: Request):
         mode = "auto"
     if mode not in ("auto", "easy", "hard") and not any(m["id"] == mode for m in router.models()):
         mode = "auto"
+    web = body.get("web", "auto") if body.get("web", "auto") in ("auto", "on", "off") else "auto"
+    temporary = bool(body.get("temporary", False))
     # Only model-visible fields go to the providers.
     prompt = [{"role": m["role"], "content": m["content"]} for m in messages]
 
     async def gen():
-        parts, model = [], None
+        parts, model, results = [], None, []
+        if search.needs_search(messages, web):
+            yield _sse("notice", "웹에서 검색하는 중이에요.")
+            last = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+            results = await search.search(last)
+            if results:
+                prompt.insert(0, search.context_message(results))
         async for kind, text in router.route(prompt, mode):
             if kind == "model":
                 model = text  # internal: reported in the done event only
@@ -289,12 +298,17 @@ async def chat(request: Request):
                 yield _sse("delta", text)
             else:
                 yield _sse("notice", text)
+        if parts and results:
+            tail = search.sources_text(results)
+            parts.append(tail)
+            yield _sse("delta", tail)
         saved, title, cid = False, None, chat_id
-        if parts:  # nothing to save if no model answered
+        if parts and not temporary:  # nothing to save if no model answered or the chat is temporary
             full = messages + [{"role": "assistant", "content": "".join(parts), "model": model}]
             saved, meta = await storage.save_chat(chat_id, {"messages": full})
             title, cid = meta["title"], meta["id"]
-        yield _sse("done", {"chat_id": cid, "saved": saved, "model": model, "title": title})
+        yield _sse("done", {"chat_id": cid, "saved": saved, "model": model, "title": title,
+                            "temporary": temporary, "sources": [{"title": r["title"], "url": r["url"]} for r in results]})
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

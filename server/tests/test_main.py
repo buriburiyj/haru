@@ -228,8 +228,53 @@ class ChatTest(unittest.TestCase):
         self.assertIn("event: delta", r.text)
         self.assertNotIn("Switching", r.text)
         done = json.loads(r.text.split("event: done\ndata: ")[1].split("\n")[0])
-        self.assertEqual(done, {"chat_id": "t1", "saved": True, "model": "m1", "title": "T"})
+        self.assertEqual(done, {"chat_id": "t1", "saved": True, "model": "m1", "title": "T", "temporary": False, "sources": []})
         self.assertEqual(saved["messages"][-1], {"role": "assistant", "content": "hello", "model": "m1"})
+
+    def test_search_adds_context_and_sources(self):
+        seen = {}
+
+        async def spy(messages, mode):
+            seen["m"] = messages
+            yield "model", "m1"
+            yield "delta", "It is sunny [1]."
+
+        async def fake_search(q):
+            seen["q"] = q
+            return [{"title": "Weather", "url": "https://w.example/a", "snippet": "sunny"}]
+
+        orig = main.search.search
+        main.search.search = fake_search
+        try:
+            r, saved = self._post({"chat_id": "s1", "messages": [{"role": "user", "content": "오늘 서울 날씨"}]}, spy)
+        finally:
+            main.search.search = orig
+        self.assertEqual(seen["q"], "오늘 서울 날씨")
+        self.assertEqual(seen["m"][0]["role"], "system")
+        self.assertIn("https://w.example/a", seen["m"][0]["content"])
+        self.assertIn("출처", r.text)
+        self.assertIn("https://w.example/a", saved["messages"][-1]["content"])
+        done = json.loads(r.text.split("event: done\ndata: ")[1].split("\n")[0])
+        self.assertEqual(done["sources"], [{"title": "Weather", "url": "https://w.example/a"}])
+
+    def test_search_off_and_failure_still_answer(self):
+        async def boom(q):
+            return []
+
+        orig = main.search.search
+        main.search.search = boom
+        try:
+            r, saved = self._post({"chat_id": "s2", "web": "on", "messages": [{"role": "user", "content": "hi"}]})
+        finally:
+            main.search.search = orig
+        self.assertIn("event: delta", r.text)
+        self.assertNotIn("출처", r.text)
+
+    def test_temporary_chat_is_not_saved(self):
+        r, saved = self._post({"chat_id": "tmp", "temporary": True, "messages": [{"role": "user", "content": "secret"}]})
+        self.assertEqual(saved, {})
+        done = json.loads(r.text.split("event: done\ndata: ")[1].split("\n")[0])
+        self.assertEqual((done["saved"], done["temporary"]), (False, True))
 
     def test_no_answer_is_not_saved(self):
         async def none_route(messages, mode):
