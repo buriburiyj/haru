@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["SESSION_SECRET"] = "test-secret"
+os.environ.pop("SETUP_TOKEN", None)  # a real token in the shell must not change test results
 os.environ["CRED_FILE"] = str(Path(tempfile.mkdtemp()) / "creds.json")
 
 import cbor2  # noqa: E402
