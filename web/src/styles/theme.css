@@ -1,6 +1,7 @@
 /* Maps tokens to Tailwind utilities (imported by tokens.css, so Tailwind sees it). */
 @theme inline {
   --font-sans: var(--haru-font-ui);
+  --font-heading: var(--haru-font-heading);
   --font-reading: var(--haru-font-reading);
   --font-mono: var(--haru-font-mono);
 

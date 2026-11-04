@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import { Button } from "../ui";
 
-export default function ActionButton({ label, onClick, children }: { label: string; onClick?: () => void; children: ReactNode }) {
+export default function ActionButton({ label, onClick, pressed, children }: { label: string; onClick?: () => void; pressed?: boolean; children: ReactNode }) {
   return (
-    <Button variant="ghost" title={label} aria-label={label} onClick={onClick} className="px-2 text-xs text-muted hover:text-fg">
+    <Button variant="ghost" title={label} aria-label={label} aria-pressed={pressed} onClick={onClick} className={pressed ? "px-2 text-xs text-fg" : "px-2 text-xs text-muted hover:text-fg"}>
       {children}
     </Button>
   );

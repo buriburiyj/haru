@@ -8,3 +8,4 @@ export { Tabs, Chip } from "./Tabs";
 export { default as Dialog } from "./Dialog";
 export { Menu, MenuItem, MenuDivider, SubMenu } from "./Menu";
 export { cx } from "./cx";
+export { CopyIcon, ThumbUpIcon, ThumbDownIcon, RefreshIcon, WarningIcon, CloudIcon, BranchIcon, StarIcon } from "./icons";

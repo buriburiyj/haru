@@ -20,7 +20,9 @@
   --haru-danger: #b3402a;
   /* fonts: change a font here once and every screen follows */
   --haru-font-ui: "Pretendard Variable", Pretendard, system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
-  --haru-font-reading: "Source Serif 4", "MaruBuri", "Pretendard Variable", Georgia, "Apple SD Gothic Neo", serif;
+  --haru-font-serif: "Source Serif 4", "MaruBuri", "Pretendard Variable", Georgia, "Apple SD Gothic Neo", serif;
+  --haru-font-heading: var(--haru-font-serif); /* big titles: serif Light (use font-heading + font-light) */
+  --haru-font-reading: var(--haru-font-ui); /* answer text: 기본 = Pretendard; 읽기 mode = serif */
   --haru-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* shape */
   --haru-radius-control: 0.75rem; /* buttons, inputs, menu items */
@@ -29,9 +31,10 @@
   --haru-radius-pill: 9999px; /* chips, switches */
   --haru-control-h: 2.75rem; /* 44px touch target, built into the ui components */
   --haru-shadow-pop: 0 8px 24px -8px rgba(0, 0, 0, 0.25); /* menus and dialogs only */
-  /* reading text (answers) */
-  --haru-reading-size: 1.0625rem;
-  --haru-reading-leading: 1.8;
+  /* answer text: 15px / 1.6 (rem, so the 글꼴 크기 setting scales it) */
+  --haru-reading-size: 0.9375rem;
+  --haru-reading-leading: 1.6;
+  --haru-reading-weight: 400;
   --haru-scrollbar: rgba(168, 150, 137, 0.3);
   --haru-scrollbar-hover: rgba(168, 150, 137, 0.5);
 }
@@ -77,9 +80,13 @@
 html[data-fontsize="small"] { font-size: 14px; }
 html[data-fontsize="large"] { font-size: 18px; }
 
-/* font setting (Settings -> 화면 -> 글꼴): 기본 = reading serif + UI gothic, 고딕 = everything Pretendard, 시스템 = system fonts */
-html[data-font="gothic"] { --haru-font-reading: var(--haru-font-ui); }
+/* font setting (Settings -> 글꼴): 기본 = Pretendard body, 읽기 = serif body (light), 시스템 = system fonts */
+html[data-font="reading"] {
+  --haru-font-reading: var(--haru-font-serif);
+  --haru-reading-weight: 300;
+}
 html[data-font="system"] {
   --haru-font-ui: system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --haru-font-heading: var(--haru-font-ui);
   --haru-font-reading: var(--haru-font-ui);
 }

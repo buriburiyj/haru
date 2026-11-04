@@ -1,11 +1,11 @@
 // Appearance settings (theme, font size) kept in localStorage. No server needed.
 export type Theme = "system" | "light" | "dark";
 export type FontSize = "small" | "medium" | "large";
-export type Font = "default" | "gothic" | "system"; // 기본(답변 명조) / 고딕 / 시스템
+export type Font = "default" | "reading" | "system"; // 기본(고딕 본문) / 읽기(본문 명조) / 시스템
 
 export const THEMES: Theme[] = ["system", "light", "dark"];
 export const FONT_SIZES: FontSize[] = ["small", "medium", "large"];
-export const FONTS: Font[] = ["default", "gothic", "system"];
+export const FONTS: Font[] = ["default", "reading", "system"];
 
 const KEYS = { theme: "haru.theme", fontSize: "haru.fontSize", font: "haru.font" } as const;
 

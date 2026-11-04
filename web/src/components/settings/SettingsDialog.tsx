@@ -23,7 +23,7 @@ const PAGES: Page[] = [
     title: "일반",
     rows: [
       { label: "테마", kind: "seg", options: ["시스템", "라이트", "다크"], store: "theme" },
-      { label: "글꼴", kind: "seg", options: ["기본", "고딕", "시스템"], store: "font" },
+      { label: "글꼴", kind: "seg", options: ["기본", "읽기", "시스템"], store: "font" },
       { label: "글꼴 크기", kind: "seg", options: ["작게", "보통", "크게"], initial: 1, store: "fontSize" },
       { label: "대화 너비", kind: "seg", options: ["좁게", "기본", "넓게"], initial: 1 },
       { label: "모션", kind: "seg", options: ["시스템", "줄이기", "켜기"] },

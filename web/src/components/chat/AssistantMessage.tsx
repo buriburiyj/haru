@@ -1,10 +1,11 @@
+import { useState } from "react";
 import type { ReactNode } from "react";
 import ActionButton, { copyText } from "./ActionButton";
 import BranchSwitcher from "./BranchSwitcher";
 import Thinking from "./Thinking";
 import Markdown from "../markdown/Markdown";
 import type { ArtifactData } from "../artifact/types";
-import { Reply } from "../ui";
+import { CopyIcon, RefreshIcon, Reply, ThumbDownIcon, ThumbUpIcon } from "../ui";
 
 type Part = { kind: "think" | "text"; text: string };
 
@@ -49,6 +50,8 @@ export default function AssistantMessage({
   /** which model answered, e.g. "자동 · Groq"; wired to the server data later */
   modelName?: string;
 }) {
+  // Like / dislike: pressing fills the icon, pressing again clears it (kept locally; sending the vote to the server comes later)
+  const [vote, setVote] = useState<"up" | "down" | null>(null);
   const body: ReactNode[] = splitThink(content).map((p, i) =>
     p.kind === "think" ? <Thinking key={i} text={p.text} /> : <Markdown key={i} text={p.text} onOpenArtifact={onOpenArtifact} />,
   );
@@ -64,11 +67,17 @@ export default function AssistantMessage({
       {content && (
         <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
           <ActionButton label="복사" onClick={() => copyText(content)}>
-            복사
+            <CopyIcon size={16} />
           </ActionButton>
-          <ActionButton label="좋아요">👍</ActionButton>
-          <ActionButton label="싫어요">👎</ActionButton>
-          <ActionButton label="다시 생성">다시 생성</ActionButton>
+          <ActionButton label="좋아요" pressed={vote === "up"} onClick={() => setVote((v) => (v === "up" ? null : "up"))}>
+            <ThumbUpIcon size={16} filled={vote === "up"} />
+          </ActionButton>
+          <ActionButton label="싫어요" pressed={vote === "down"} onClick={() => setVote((v) => (v === "down" ? null : "down"))}>
+            <ThumbDownIcon size={16} filled={vote === "down"} />
+          </ActionButton>
+          <ActionButton label="다시 생성">
+            <RefreshIcon size={16} />
+          </ActionButton>
         </div>
       )}
     </div>

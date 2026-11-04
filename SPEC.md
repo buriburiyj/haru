@@ -195,14 +195,15 @@ pbpaste >> ~/haru/SPEC.md && tail -3 ~/haru/SPEC.md
 - Aside: 브라우저 작업만(Hostless/GitHub 설정 화면, 완성 화면 확인)
 - 원칙: 단계마다 테스트 통과 + 실제 동작 확인 후 다음 단계. 서브에이전트는 파일이 겹치지 않을 때만
 
-## 글꼴 확정 (2026-11-03)
-- 화면 글자(메뉴, 버튼, 입력창): Pretendard
-- 답변 본문: 마루 부리(한국어) + Source Serif 4(영어, 숫자)
-- 코드: JetBrains Mono
-- 설정 > 화면에서 글꼴 선택: 기본(답변 명조) / 고딕(모두 Pretendard) / 시스템
-- 모두 npm이나 web/public에 넣어서 빌드(CDN 금지), woff2로 필요한 굵기만, font-display: swap
-- 목표: Claude처럼 답변은 책 느낌, 화면은 깔끔하게
-
+## 글꼴 확정 (2026-11-04, Claude 현재 방식에 맞춤)
+- 본문(답변, 메뉴, 버튼, 입력창): Pretendard 400. 답변 본문은 15px, 줄 간격 1.6
+- 큰 제목(첫 화면 인사, 페이지 제목): 명조 Light. 영어와 숫자는 Source Serif 4 300, 한글은 마루 부리의 가장 얇은 굵기(ExtraLight) 1개만 넣는다. 마루 부리 400/700은 쓰지 않는다
+- 코드: JetBrains Mono 400
+- 설정 > 글꼴 선택: 기본(고딕 본문, 기본값) / 읽기(본문 명조, Light) / 시스템
+- 모두 npm이나 web/src/assets에 넣어서 빌드(CDN 금지), woff2로 필요한 굵기만, font-display: swap
+- 글꼴 값은 web/src/styles/tokens.css 변수(--haru-font-*)만 쓴다. 화면 코드는 font-heading / font-reading / font-mono 이름만 쓴다
+- Anthropic Sans, Anthropic Serif(npm anthropic-fonts 등)는 라이선스가 없으므로 절대 쓰지 않는다
+- 라이선스 안내: web/public/licenses/FONTS.md
 ## Code 탭 확정 (2026-11-03, Claude Code 웹 참고, 5단계에서 구현)
 - 사이드바: 상단 "Code" + Chat/Code 전환 / 새로 만들기, 검색, 아티팩트, 사용자 지정, 더 보기(예약됨, 사이드바 편집) / 최근 항목 필터, 빈 상태 문구 + 모든 세션 보기 / 하단 계정과 설정
 - 첫 화면: 제목 "새 세션", 가운데 Haru 로고와 환경 카드, 입력창 "작업을 설명하거나 질문하세요" (+, 받아쓰기)

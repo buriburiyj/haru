@@ -13,12 +13,12 @@ export function UserBubble({ className, ...rest }: HTMLAttributes<HTMLDivElement
   );
 }
 
-/** Haru's answer: no bubble, left, book-like reading font (see data-font in tokens.css). */
+/** Haru's answer: no bubble, left. 15px/1.6 Pretendard by default; serif light in 읽기 mode (data-font in tokens.css). */
 export function Reply({ className, style, ...rest }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cx("w-full break-words font-reading text-fg", className)}
-      style={{ fontSize: "var(--haru-reading-size)", lineHeight: "var(--haru-reading-leading)", ...style }}
+      style={{ fontSize: "var(--haru-reading-size)", lineHeight: "var(--haru-reading-leading)", fontWeight: "var(--haru-reading-weight)", ...style }}
       {...rest}
     />
   );

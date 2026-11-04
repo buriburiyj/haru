@@ -28,7 +28,7 @@ export default function PageShell({
         <IconButton label="닫기" onClick={onClose}>
           ←
         </IconButton>
-        <h1 className="mr-auto text-lg font-semibold">{title}</h1>
+        <h1 className="mr-auto font-heading text-xl font-light">{title}</h1>
         {actions}
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">

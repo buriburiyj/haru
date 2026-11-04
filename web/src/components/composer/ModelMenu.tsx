@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Effort, ModelId } from "../../types";
-import { Chip, Menu, MenuDivider, MenuItem, SubMenu } from "../ui";
+import { Chip, Menu, MenuDivider, MenuItem, SubMenu, WarningIcon } from "../ui";
 import { useDismiss } from "./ui";
 
 const MODELS: { id: ModelId; label: string; desc: string }[] = [
@@ -15,11 +15,11 @@ const MORE: { id: ModelId; label: string }[] = [
   { id: "mistral-large-4", label: "Mistral Large 4" },
   { id: "deepseek-v4.1-flash", label: "DeepSeek V4.1 Flash" },
 ];
-const EFFORTS: { id: Effort; label: string }[] = [
+const EFFORTS: { id: Effort; label: string; hint?: string }[] = [
   { id: "low", label: "낮음" },
   { id: "medium", label: "보통(추천)" },
   { id: "high", label: "높음" },
-  { id: "max", label: "최대(⚠ 사용량 많음)" },
+  { id: "max", label: "최대", hint: "사용량이 많습니다" },
 ];
 
 export function modelLabel(id: ModelId): string {
@@ -60,7 +60,7 @@ export default function ModelMenu({
           <MenuDivider />
           <SubMenu label="노력" side="left">
             {EFFORTS.map((e) => (
-              <MenuItem key={e.id} check={e.id === effort} onClick={() => pick(model, e.id)}>
+              <MenuItem key={e.id} check={e.id === effort} hint={e.hint} icon={e.id === "max" ? <WarningIcon size={16} /> : undefined} onClick={() => pick(model, e.id)}>
                 {e.label}
               </MenuItem>
             ))}

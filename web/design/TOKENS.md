@@ -18,14 +18,16 @@ Check it by eye at `/haru/?demo=ui` (no login, no server): theme, font and size 
 | bg-bubble | --haru-user-bubble | my message bubble |
 | text-danger / bg-danger | --haru-danger | delete, errors |
 
-## Fonts (Settings -> 글꼴: 기본 / 고딕 / 시스템 via `data-font` on <html>)
+## Fonts (Settings -> 글꼴: 기본 / 읽기 / 시스템 via `data-font` on <html>; default is 기본)
 | Tailwind | Variable | Stack |
 |---|---|---|
-| font-sans (default on body) | --haru-font-ui | Pretendard Variable |
-| font-reading (answers) | --haru-font-reading | Source Serif 4 (Latin/digits) + MaruBuri (Hangul); 고딕 = Pretendard; 시스템 = system |
-| font-mono (code) | --haru-font-mono | JetBrains Mono |
-Answer text size/leading: --haru-reading-size 1.0625rem, --haru-reading-leading 1.8. Whole-UI size: `data-fontsize` small 14px / medium 16px / large 18px on <html> (rem based).
-Weights bundled: Pretendard variable (split by unicode-range), Source Serif 4 400/700, MaruBuri 400/700, JetBrains Mono 400. Licenses: `web/public/licenses/FONTS.md`.
+| font-sans (default on body) | --haru-font-ui | Pretendard Variable, weight 400 |
+| font-heading + font-light | --haru-font-heading | Source Serif 4 300 (Latin/digits) + MaruBuri ExtraLight (Hangul, served as 300); 시스템 = system fonts |
+| font-reading (answers) | --haru-font-reading | 기본 = Pretendard; 읽기 = serif Light (--haru-reading-weight 300); 시스템 = system |
+| font-mono (code) | --haru-font-mono | JetBrains Mono 400 |
+Answer text: 15px (--haru-reading-size 0.9375rem), line height 1.6 (--haru-reading-leading). Whole-UI size: `data-fontsize` small 14px / medium 16px / large 18px on <html> (rem based).
+Big titles (first-screen greeting, page titles) use `font-heading font-light`. Anthropic Sans/Serif must never be used (no license).
+Files bundled: Pretendard variable (split by unicode-range), Source Serif 4 300, MaruBuri ExtraLight, JetBrains Mono 400. Licenses: `web/public/licenses/FONTS.md`.
 
 ## Shape and space
 | Tailwind | Variable | Value | Use |
@@ -45,3 +47,6 @@ The example is in the check screen section "칩 · 하위 메뉴 예시".
 
 ## Migration status
 Stage 1, part 1: tokens, components and the check screen exist. Existing screens still use their own classes; part 2 moves them to these components and removes the global 44px rule in `mobile.css`.
+
+## Icons
+Line icons in `components/ui/icons.tsx`: empty inside, `currentColor`, stroke 1.8 (same as the sidebar icons). Never use emoji as icons. A pressed state (like / dislike, star) fills the inside (`filled`). Text glyphs ✕ ✓ ‹ › ← ☰ are not emoji and stay as text.

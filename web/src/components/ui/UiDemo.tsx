@@ -13,12 +13,12 @@ import {
   type FontSize,
   type Theme,
 } from "../settings/appearance";
-import { Button, Card, Chip, Dialog, IconButton, Input, Menu, MenuDivider, MenuItem, Reply, SubMenu, Tabs, Textarea, UserBubble } from "./index";
+import { BranchIcon, Button, Card, Chip, CloudIcon, Dialog, IconButton, StarIcon, Input, Menu, MenuDivider, MenuItem, Reply, SubMenu, Tabs, Textarea, UserBubble } from "./index";
 
 // Design check screen: open <site>/haru/?demo=ui . No login, no server calls, no secrets. Sample text only.
 
 const THEME_LABEL: Record<Theme, string> = { system: "시스템", light: "라이트", dark: "다크" };
-const FONT_LABEL: Record<Font, string> = { default: "기본 (답변 명조)", gothic: "고딕", system: "시스템" };
+const FONT_LABEL: Record<Font, string> = { default: "기본 (고딕 본문)", reading: "읽기 (본문 명조)", system: "시스템" };
 const SIZE_LABEL: Record<FontSize, string> = { small: "작게", medium: "보통", large: "크게" };
 
 const SWATCHES = [
@@ -70,7 +70,7 @@ export default function UiDemo() {
     <div className="h-full overflow-y-auto bg-bg text-fg">
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-8 px-4 py-6">
         <header className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold">Haru 디자인 확인</h1>
+          <h1 className="font-heading text-3xl font-light">Haru 디자인 확인</h1>
           <p className="text-sm text-muted">로그인 없이 보이는 확인용 화면입니다. 서버와 통신하지 않습니다.</p>
         </header>
 
@@ -146,7 +146,7 @@ export default function UiDemo() {
             <Button variant="danger">삭제</Button>
             <Button disabled>비활성</Button>
             <IconButton label="더 보기">⋯</IconButton>
-            <IconButton label="선택됨" active>★</IconButton>
+            <IconButton label="선택됨" active><StarIcon filled /></IconButton>
           </div>
         </Section>
 
@@ -173,8 +173,8 @@ export default function UiDemo() {
 
         <Section title="칩 · 하위 메뉴 예시 (Code 입력창 아래 줄 모양)">
           <div className="relative flex flex-wrap gap-2">
-            <Chip caret icon="☁">클라우드</Chip>
-            <Chip caret icon="⎇">buriburiyj/haru</Chip>
+            <Chip caret icon={<CloudIcon size={16} />}>클라우드</Chip>
+            <Chip caret icon={<BranchIcon size={16} />}>buriburiyj/haru</Chip>
             <Chip caret onClick={() => setChipMenu((v) => !v)}>{["자동", "GPT-6 Luna", "GPT-5.6 Terra", "GPT-5.6 Luna", "빠른 답변"][model]}</Chip>
             <Chip caret>Auto</Chip>
             {chipMenu && (
