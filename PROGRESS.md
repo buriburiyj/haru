@@ -23,6 +23,7 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 - web/ empty PWA + .github/workflows/pages.yml. Build passes.
 
 - [창B] Stage 1 server DONE (2026-11-03, be59b0c; NEEDS Hostless deploy): Groq default model is now openai/gpt-oss-20b (llama-3.1-8b-instant was removed by Groq, which made every chat fall to NVIDIA). The "Switching to ..." text is gone from answers; the done event carries model and title. API: GET /models, GET /chats?q=, GET /chats/{id}, POST /chats/{id}/rename, DELETE /chats/{id} (call only after UI confirm). One commit per answer holds the chat file + .agent/chats/index.json. Types are in web/src/api.ts. useAuth now reports LoginError kinds via classifyLoginError. Env: optional GITHUB_BRANCH (default main).
+- [창B] Stage 1 server round 2 DONE (2026-11-04, NEEDS Hostless deploy; API in server/API.md, 64 tests pass): (1) hard questions -> Codex through a jun-files Actions run (codex.py + server/workflows/codex-chat.yml; one run tries gpt-6-luna -> gpt-5.6-terra -> gpt-5.6-luna; easy never uses Actions; monthly minute guard 1500; falls back to NVIDIA). NOT run for real: the haru-store token gets 403 on Actions and codex-chat.yml is not in jun-files yet. (2) DuckDuckGo web search with sources. (3) POST/GET /uploads + vision model nvidia/nemotron-3.5-super-vl-120b-a12b (verified live with jun-files). (4) /memory CRUD + injection, temporary chats skip memory and saving (verified live). (5) GET /models = auto, Groq, 3 Codex, 3 NVIDIA.
 
 ## Web UI skeleton (2026-11-02)
 - Foundation done (f020de6): Tailwind v4 (@tailwindcss/vite), Pretendard bundled via npm `pretendard` (no CDN), web/src/styles/tokens.css (TEMP neutral colors, accent #DA7756), components/Logo.tsx (temp SVG, replace with icon.png later).
@@ -44,7 +45,7 @@ Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 - Stages 1-6 per SPEC.md section 12
 
 ## Next (one line)
-Stage 1 server side (real chat save, chat list API, auto model selection wiring): plan reported, waiting for approval.
+Deploy Hostless once (needs the new env names in server/API.md), then give the server token Actions read/write on jun-files and copy server/workflows/codex-chat.yml there, then test Codex end to end.
 - [창A] 2단계 화면(서버 없이): components/customize/ (CustomizePanel 하나를 사이드바 사용자 지정 팝업과 설정 팝업이 공유). 임시 예시 데이터는 customize/sample.ts.
 - [창A] [Skills|커넥터|플러그인]x[내 항목|탐색], 빈 상태 카드, 커넥터 표(이름/유형/상태), Skills 목록(⋯ 메뉴). 서버 연결과 저장은 아직 없음.
 - [창A] web/design/icon_raw.png 삭제함. 아이콘은 icon_transparent.png 기준으로 이미 반영됨(로고 PNG, favicon.svg, apple-touch 180, PWA 192 any+maskable).
