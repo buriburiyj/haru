@@ -1,0 +1,17 @@
+/* Maps tokens to Tailwind utilities (imported by tokens.css, so Tailwind sees it). */
+@theme inline {
+  --font-sans: var(--haru-font-ui);
+  --font-reading: var(--haru-font-reading);
+  --font-mono: var(--haru-font-mono);
+
+  --radius-control: var(--haru-radius-control);
+  --radius-card: var(--haru-radius-card);
+  --radius-bubble: var(--haru-radius-bubble);
+  --radius-pill: var(--haru-radius-pill);
+
+  --shadow-pop: var(--haru-shadow-pop);
+
+  --color-accent-hover: var(--haru-accent-hover);
+  --color-accent-strong: var(--haru-accent-strong);
+  --color-fg-2: var(--haru-fg-2);
+}

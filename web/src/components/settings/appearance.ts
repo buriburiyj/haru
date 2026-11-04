@@ -1,11 +1,13 @@
 // Appearance settings (theme, font size) kept in localStorage. No server needed.
 export type Theme = "system" | "light" | "dark";
 export type FontSize = "small" | "medium" | "large";
+export type Font = "default" | "gothic" | "system"; // 기본(답변 명조) / 고딕 / 시스템
 
 export const THEMES: Theme[] = ["system", "light", "dark"];
 export const FONT_SIZES: FontSize[] = ["small", "medium", "large"];
+export const FONTS: Font[] = ["default", "gothic", "system"];
 
-const KEYS = { theme: "haru.theme", fontSize: "haru.fontSize" } as const;
+const KEYS = { theme: "haru.theme", fontSize: "haru.fontSize", font: "haru.font" } as const;
 
 function read<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
@@ -25,6 +27,7 @@ function write(key: string, value: string) {
 
 export const getTheme = () => read<Theme>(KEYS.theme, THEMES, "system");
 export const getFontSize = () => read<FontSize>(KEYS.fontSize, FONT_SIZES, "medium");
+export const getFont = () => read<Font>(KEYS.font, FONTS, "default");
 
 function applyTheme(t: Theme) {
   const el = document.documentElement;
@@ -35,6 +38,14 @@ function applyFontSize(s: FontSize) {
   document.documentElement.dataset.fontsize = s;
 }
 
+function applyFont(f: Font) {
+  document.documentElement.dataset.font = f;
+}
+
+export function setFont(f: Font) {
+  write(KEYS.font, f);
+  applyFont(f);
+}
 export function setTheme(t: Theme) {
   write(KEYS.theme, t);
   applyTheme(t);
@@ -47,6 +58,7 @@ export function setFontSize(s: FontSize) {
 export function applyStoredAppearance() {
   applyTheme(getTheme());
   applyFontSize(getFontSize());
+  applyFont(getFont());
 }
 
 // Runs as soon as the bundle loads, so the login screen is themed too.

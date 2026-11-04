@@ -1,3 +1,5 @@
+@import "./theme.css";
+@import "./fonts.css";
 @import "./mobile.css";
 /* Haru design tokens (confirmed from web/design/reference.html).
    Components must never use raw colors: use var(--haru-*) or the Tailwind tokens from index.css. */
@@ -16,6 +18,20 @@
   --haru-surface-2: color-mix(in srgb, var(--haru-surface) 55%, var(--haru-border));
   --haru-user-bubble: var(--haru-surface);
   --haru-danger: #b3402a;
+  /* fonts: change a font here once and every screen follows */
+  --haru-font-ui: "Pretendard Variable", Pretendard, system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --haru-font-reading: "Source Serif 4", "MaruBuri", "Pretendard Variable", Georgia, "Apple SD Gothic Neo", serif;
+  --haru-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* shape */
+  --haru-radius-control: 0.75rem; /* buttons, inputs, menu items */
+  --haru-radius-card: 1rem; /* cards, popups, composer */
+  --haru-radius-bubble: 1.25rem; /* user bubble */
+  --haru-radius-pill: 9999px; /* chips, switches */
+  --haru-control-h: 2.75rem; /* 44px touch target, built into the ui components */
+  --haru-shadow-pop: 0 8px 24px -8px rgba(0, 0, 0, 0.25); /* menus and dialogs only */
+  /* reading text (answers) */
+  --haru-reading-size: 1.0625rem;
+  --haru-reading-leading: 1.8;
   --haru-scrollbar: rgba(168, 150, 137, 0.3);
   --haru-scrollbar-hover: rgba(168, 150, 137, 0.5);
 }
@@ -60,3 +76,10 @@
 /* font size setting (Settings -> 일반 -> 글꼴 크기); Tailwind sizes are rem based, so the whole UI scales */
 html[data-fontsize="small"] { font-size: 14px; }
 html[data-fontsize="large"] { font-size: 18px; }
+
+/* font setting (Settings -> 화면 -> 글꼴): 기본 = reading serif + UI gothic, 고딕 = everything Pretendard, 시스템 = system fonts */
+html[data-font="gothic"] { --haru-font-reading: var(--haru-font-ui); }
+html[data-font="system"] {
+  --haru-font-ui: system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+  --haru-font-reading: var(--haru-font-ui);
+}

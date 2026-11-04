@@ -1,0 +1,25 @@
+/* Fonts (all bundled by the build, no CDN, font-display: swap). Licenses: web/public/licenses/FONTS.md
+   - UI: Pretendard (variable, split by unicode-range, loaded in index.css)
+   - Reading: Source Serif 4 (Latin, digits) 400/700 + MaruBuri (Hangul) 400/700
+   - Code: JetBrains Mono 400 */
+@import "@fontsource/source-serif-4/latin-400.css";
+@import "@fontsource/source-serif-4/latin-700.css";
+@import "@fontsource/jetbrains-mono/latin-400.css";
+
+/* MaruBuri only for Hangul and CJK punctuation, so Latin and digits come from Source Serif 4. */
+@font-face {
+  font-family: "MaruBuri";
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  src: url("../assets/fonts/MaruBuri-Regular.woff2") format("woff2");
+  unicode-range: U+1100-11FF, U+3000-303F, U+3130-318F, U+A960-A97F, U+AC00-D7AF, U+D7B0-D7FF, U+FF00-FFEF;
+}
+@font-face {
+  font-family: "MaruBuri";
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+  src: url("../assets/fonts/MaruBuri-Bold.woff2") format("woff2");
+  unicode-range: U+1100-11FF, U+3000-303F, U+3130-318F, U+A960-A97F, U+AC00-D7AF, U+D7B0-D7FF, U+FF00-FFEF;
+}
