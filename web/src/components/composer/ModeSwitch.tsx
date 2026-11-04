@@ -2,7 +2,7 @@ import type { Mode } from "../../types";
 
 const OPTIONS: { id: Mode; label: string }[] = [
   { id: "chat", label: "채팅" },
-  { id: "cowork", label: "Cowork" },
+  { id: "work", label: "Work" },
 ];
 
 export default function ModeSwitch({ mode, onChange }: { mode: Mode; onChange: (m: Mode) => void }) {

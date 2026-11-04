@@ -3,7 +3,7 @@ import type { Msg } from "./api";
 export type { Msg };
 export type ModelId = "auto" | "gpt-6-luna" | "gpt-5.6-terra" | "gpt-5.6-luna" | "fast" | string;
 export type Effort = "low" | "medium" | "high" | "max";
-export type Mode = "chat" | "cowork";
+export type Mode = "chat" | "work";
 export type Page = "home" | "chat";
 
 export type ChatHistoryItem = { id: string; title: string; when: string };
@@ -19,6 +19,6 @@ export type ComposerProps = {
   onModelChange: (m: ModelId, e: Effort) => void;
   mode: Mode;
   onModeChange: (m: Mode) => void;
-  /** hide the [Chat|Cowork] switch (hidden inside a conversation) */
+  /** hide the [Chat|Work] switch (hidden inside a conversation) */
   hideModeSwitch?: boolean;
 };

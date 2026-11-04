@@ -2,7 +2,7 @@
 export type ChatListItem = {
   id: string;
   title: string;
-  kind: "채팅" | "Code" | "Cowork";
+  kind: "채팅" | "Code" | "Work";
   when: string;
   archived?: boolean;
 };

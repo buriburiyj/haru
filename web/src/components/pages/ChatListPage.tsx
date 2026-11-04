@@ -7,15 +7,15 @@ import type { ChatListItem } from "./types";
 const SAMPLE_CHATS: ChatListItem[] = [
   { id: "1", title: "여행 일정 정리", kind: "채팅", when: "방금" },
   { id: "2", title: "로그인 버그 수정", kind: "Code", when: "3시간 전" },
-  { id: "3", title: "주간 보고서 초안", kind: "Cowork", when: "3시간 전" },
+  { id: "3", title: "주간 보고서 초안", kind: "Work", when: "3시간 전" },
   { id: "4", title: "레시피 추천", kind: "채팅", when: "어제" },
   { id: "5", title: "API 서버 리팩터링", kind: "Code", when: "어제" },
-  { id: "6", title: "회의록 요약", kind: "Cowork", when: "3일 전" },
+  { id: "6", title: "회의록 요약", kind: "Work", when: "3일 전" },
   { id: "7", title: "영어 이메일 번역", kind: "채팅", when: "3일 전", archived: true },
   { id: "8", title: "독서 목록 정리", kind: "채팅", when: "3일 전", archived: true },
 ];
 
-const FILTERS = ["전체", "채팅", "Code", "Cowork", "즉시 보관"] as const;
+const FILTERS = ["전체", "채팅", "Code", "Work", "즉시 보관"] as const;
 type Filter = (typeof FILTERS)[number];
 
 export default function ChatListPage({
