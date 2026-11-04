@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import Logo from "./Logo";
+import { IconButton } from "./ui";
 import { TempChatBanner, TempChatToggle } from "./temp/TempChat";
 
 function greeting(h: number): string {
@@ -14,16 +15,15 @@ export default function Welcome({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center px-3 py-2">
-        <button
-          type="button"
+        <IconButton
+          label="메뉴"
           onClick={() => window.dispatchEvent(new Event("haru:open-drawer"))}
-          aria-label="메뉴"
-          className="flex h-11 w-11 items-center justify-center rounded-lg text-fg hover:bg-surface-2 md:hidden"
+          className="md:hidden"
         >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
             <path d="M4 6h16M4 12h16M4 18h16" />
           </svg>
-        </button>
+        </IconButton>
         <div className="ml-auto">
           <TempChatToggle />
         </div>

@@ -3,6 +3,7 @@ import type { ComposerProps } from "../types";
 import ModeSwitch from "./composer/ModeSwitch";
 import ModelMenu from "./composer/ModelMenu";
 import PlusMenu from "./composer/PlusMenu";
+import { Button } from "./ui";
 
 export default function Composer({
   value,
@@ -31,7 +32,7 @@ export default function Composer({
 
   return (
     <form
-      className="w-full max-w-2xl rounded-2xl border border-line bg-surface p-3 transition-colors focus-within:border-accent"
+      className="w-full max-w-2xl rounded-card border border-line bg-surface p-3 transition-colors focus-within:border-accent"
       onSubmit={(e) => {
         e.preventDefault();
         if (canSend) onSubmit();
@@ -59,16 +60,11 @@ export default function Composer({
         <div className="flex-1" />
         {!hideModeSwitch && <ModeSwitch mode={mode} onChange={onModeChange} />}
         <ModelMenu model={model} effort={effort} onModelChange={onModelChange} />
-        <button
-          type="submit"
-          aria-label="보내기"
-          disabled={!canSend}
-          className="flex h-8 w-8 items-center justify-center rounded-lg bg-accent text-accent-fg disabled:opacity-40"
-        >
+        <Button type="submit" variant="primary" aria-label="보내기" disabled={!canSend} className="w-9 pointer-coarse:w-11 px-0">
           <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
             <path d="M12 19V5M5 12l7-7 7 7" />
           </svg>
-        </button>
+        </Button>
       </div>
     </form>
   );

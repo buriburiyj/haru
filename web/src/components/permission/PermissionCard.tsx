@@ -1,3 +1,5 @@
+import { Button, Card } from "../ui";
+
 export type PermissionKind = "normal" | "delete" | "send" | "pay";
 export type PermissionRequest = { title: string; kind: PermissionKind };
 export type PermissionDecision = "once" | "always" | "deny";
@@ -28,24 +30,21 @@ export default function PermissionCard({
   request: PermissionRequest;
   onDecide: (d: PermissionDecision) => void;
 }) {
-  const btn = "min-h-11 rounded-lg px-4 text-sm";
   return (
-    <div role="alertdialog" aria-label="권한 요청" className="mb-2 rounded-2xl border border-line bg-surface p-3">
+    <Card role="alertdialog" aria-label="권한 요청" className="mb-2 p-3">
       <p className="text-xs text-muted">{LABEL[request.kind]}</p>
       <p className="mt-0.5 text-sm text-fg">{request.title}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" onClick={() => onDecide("once")} className={`${btn} bg-accent text-accent-fg`}>
+        <Button variant="primary" onClick={() => onDecide("once")}>
           이번만 허용
-        </button>
+        </Button>
         {request.kind === "normal" && (
-          <button type="button" onClick={() => onDecide("always")} className={`${btn} border border-line text-fg hover:bg-surface-2`}>
-            항상 허용
-          </button>
+          <Button onClick={() => onDecide("always")}>항상 허용</Button>
         )}
-        <button type="button" onClick={() => onDecide("deny")} className={`${btn} border border-line text-danger hover:bg-surface-2`}>
+        <Button onClick={() => onDecide("deny")} className="text-danger">
           거부
-        </button>
+        </Button>
       </div>
-    </div>
+    </Card>
   );
 }

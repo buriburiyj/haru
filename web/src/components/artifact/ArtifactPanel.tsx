@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { copyText } from "../chat/ActionButton";
+import { Button, Tabs } from "../ui";
 import type { ArtifactData } from "./types";
 
 type Props = {
@@ -48,48 +49,33 @@ export default function ArtifactPanel({ artifact, onClose, onFix }: Props) {
 
   if (!artifact) return null;
 
-  const tabClass = (active: boolean) =>
-    `rounded-md px-3 py-1 text-sm ${active ? "bg-surface-2 text-fg" : "text-muted"}`;
-
   return (
-    <aside className="fixed inset-0 z-50 flex flex-col bg-bg text-fg md:static md:inset-auto md:z-auto md:w-[28rem] md:shrink-0 md:border-l md:border-line">
+    <aside className="fixed inset-0 z-50 flex flex-col bg-bg text-fg md:static md:inset-auto md:z-auto md:w-md md:shrink-0 md:border-l md:border-line">
       <header className="flex items-center gap-2 border-b border-line px-3 py-2">
         <h2 className="min-w-0 flex-1 truncate text-sm font-medium">{artifact.title}</h2>
-        <div className="flex gap-1">
-          <button type="button" className={tabClass(tab === "preview")} onClick={() => setTab("preview")}>
-            미리보기
-          </button>
-          <button type="button" className={tabClass(tab === "code")} onClick={() => setTab("code")}>
-            코드
-          </button>
-        </div>
-        <button
-          type="button"
-          className="rounded-md px-2 py-1 text-sm text-muted hover:bg-surface-2"
-          onClick={() => copyText(artifact.code)}
-        >
+        <Tabs
+          value={tab}
+          onChange={setTab}
+          options={[
+            { id: "preview", label: "미리보기" },
+            { id: "code", label: "코드" },
+          ]}
+        />
+        <Button variant="ghost" className="px-2 text-muted" onClick={() => copyText(artifact.code)}>
           복사
-        </button>
-        <button
-          type="button"
-          className="rounded-md px-2 py-1 text-sm text-muted hover:bg-surface-2"
-          onClick={onClose}
-        >
+        </Button>
+        <Button variant="ghost" className="px-2 text-muted" onClick={onClose}>
           닫기
-        </button>
+        </Button>
       </header>
 
       {error && (
         <div className="flex items-center gap-2 border-b border-line bg-surface px-3 py-2 text-sm">
           <span className="min-w-0 flex-1 truncate text-danger">{error}</span>
           {onFix && (
-            <button
-              type="button"
-              className="shrink-0 rounded-md bg-accent px-3 py-1 text-accent-fg"
-              onClick={() => onFix(error)}
-            >
+            <Button variant="primary" className="shrink-0" onClick={() => onFix(error)}>
               Haru로 고치기
-            </button>
+            </Button>
           )}
         </div>
       )}

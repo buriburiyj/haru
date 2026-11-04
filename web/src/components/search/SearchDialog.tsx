@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Button, Chip, IconButton } from "../ui";
 
 const TABS = ["전체", "아티팩트", "채팅", "프로젝트", "세션", "작업", "예약됨"];
 
@@ -38,13 +39,13 @@ export default function SearchDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-stretch justify-center bg-fg/40 md:items-start md:p-6 md:pt-[12vh]"
+      className="fixed inset-0 z-50 flex items-stretch justify-center bg-fg/40 md:items-start md:p-6 md:pt-24"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       <div
         role="dialog"
         aria-label="검색"
-        className="flex h-full w-full flex-col overflow-hidden bg-bg text-fg md:h-auto md:max-h-[70vh] md:max-w-xl md:rounded-2xl md:border md:border-line"
+        className="flex h-full w-full flex-col overflow-hidden bg-bg text-fg md:h-auto md:max-h-160 md:max-w-xl md:rounded-card md:border md:border-line"
       >
         <div className="flex items-center gap-2 border-b border-line p-3">
           <input
@@ -54,22 +55,15 @@ export default function SearchDialog({ onClose }: { onClose: () => void }) {
             placeholder="검색"
             className="min-w-0 flex-1 bg-transparent px-1 text-base text-fg outline-none placeholder:text-muted"
           />
-          <button type="button" onClick={onClose} aria-label="닫기" className="px-2 text-muted md:hidden">
+          <IconButton label="닫기" onClick={onClose} className="md:hidden">
             ✕
-          </button>
+          </IconButton>
         </div>
         <div className="flex gap-1 overflow-x-auto border-b border-line p-2">
           {TABS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setTab(t)}
-              className={`shrink-0 rounded-lg px-3 py-1 text-sm ${
-                tab === t ? "bg-accent text-accent-fg" : "text-muted"
-              }`}
-            >
+            <Chip key={t} selected={tab === t} onClick={() => setTab(t)} className="shrink-0">
               {t}
-            </button>
+            </Chip>
           ))}
         </div>
         <div className="flex-1 overflow-y-auto p-2">
@@ -84,14 +78,10 @@ export default function SearchDialog({ onClose }: { onClose: () => void }) {
               <div key={s.name} className="mb-2">
                 <div className="px-2 py-1 text-xs text-muted">{s.name}</div>
                 {rows.map((r) => (
-                  <button
-                    key={r.title}
-                    type="button"
-                    className="flex w-full items-center justify-between gap-3 rounded-lg px-2 py-2 text-left text-sm hover:bg-surface"
-                  >
+                  <Button key={r.title} variant="ghost" className="w-full justify-between px-2 text-left font-normal">
                     <span className="truncate">{r.title}</span>
                     <span className="shrink-0 text-xs text-muted">{r.meta}</span>
-                  </button>
+                  </Button>
                 ))}
               </div>
             );

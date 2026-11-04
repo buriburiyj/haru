@@ -20,7 +20,7 @@ export default function CopyToast() {
     <div
       role="status"
       className={
-        "pointer-events-none fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-full border border-line bg-surface px-4 py-2 text-sm text-fg shadow-lg transition-opacity " +
+        "pointer-events-none fixed bottom-24 left-1/2 z-50 -translate-x-1/2 rounded-pill border border-line bg-surface px-4 py-2 text-sm text-fg shadow-pop transition-opacity " +
         (show ? "opacity-100" : "opacity-0")
       }
     >

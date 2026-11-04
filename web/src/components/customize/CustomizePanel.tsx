@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Button, Card, IconButton, Input, Menu, MenuItem, Tabs } from "../ui";
 import {
   EXPLORE_CONNECTORS,
   EXPLORE_PLUGINS,
@@ -17,30 +18,23 @@ import {
 const KINDS: Kind[] = ["skills", "connectors", "plugins"];
 type Sort = "name" | "recent";
 
-const tabCls = (on: boolean) =>
-  `rounded-lg px-3 py-1.5 text-sm ${on ? "bg-surface-2 text-fg" : "text-muted hover:text-fg"}`;
-
 function RowMenu({ items }: { items: string[] }) {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button
-        type="button"
-        aria-label="더 보기"
+      <IconButton
+        label="더 보기"
         onClick={() => setOpen((v) => !v)}
         onBlur={() => setTimeout(() => setOpen(false), 120)}
-        className="rounded-md px-2 py-1 text-muted hover:bg-surface-2 hover:text-fg"
       >
         ⋯
-      </button>
+      </IconButton>
       {open && (
-        <div className="absolute right-0 top-full z-10 mt-1 flex min-w-32 flex-col rounded-xl border border-line bg-surface p-1 shadow-lg">
+        <Menu className="absolute right-0 top-full z-10 mt-1">
           {items.map((t) => (
-            <button key={t} type="button" className="rounded-lg px-2 py-1.5 text-left text-sm text-fg hover:bg-surface-2">
-              {t}
-            </button>
+            <MenuItem key={t}>{t}</MenuItem>
           ))}
-        </div>
+        </Menu>
       )}
     </div>
   );
@@ -48,17 +42,13 @@ function RowMenu({ items }: { items: string[] }) {
 
 function EmptyCard({ kind, onBrowse }: { kind: Kind; onBrowse: () => void }) {
   return (
-    <div className="flex flex-col items-center gap-3 rounded-xl border border-line bg-surface p-8 text-center">
+    <Card className="flex flex-col items-center gap-3 p-8 text-center">
       <p className="text-sm text-fg">첫 번째 {KIND_NOUN[kind]} 추가하기</p>
       <div className="flex gap-2">
-        <button type="button" className="rounded-lg bg-accent px-3 py-1.5 text-sm text-accent-fg">
-          + 추가
-        </button>
-        <button type="button" onClick={onBrowse} className="rounded-lg border border-line px-3 py-1.5 text-sm text-fg">
-          둘러보기
-        </button>
+        <Button variant="primary">+ 추가</Button>
+        <Button onClick={onBrowse}>둘러보기</Button>
       </div>
-    </div>
+    </Card>
   );
 }
 
@@ -104,9 +94,7 @@ function ConnectorTable({ items }: { items: ConnectorItem[] }) {
                     ✓
                   </span>
                 ) : (
-                  <button type="button" className="rounded-lg border border-line px-3 py-1 text-xs text-fg hover:bg-surface-2">
-                    연결
-                  </button>
+                  <Button className="text-xs">연결</Button>
                 )}
               </td>
             </tr>
@@ -140,7 +128,7 @@ function ExploreGrid({ cards }: { cards: Card[] }) {
   return (
     <div className="grid gap-3 sm:grid-cols-2">
       {cards.map((c) => (
-        <div key={c.name} className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-4">
+        <Card key={c.name} className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-sm text-fg">{c.name}</span>
             {c.added && (
@@ -153,17 +141,15 @@ function ExploreGrid({ cards }: { cards: Card[] }) {
           <div className="mt-1 flex items-center justify-between">
             <span className="text-xs text-muted">{c.by}</span>
             <div className="flex gap-1">
-              <button type="button" className="rounded-lg border border-line px-2.5 py-1 text-xs text-fg hover:bg-surface-2">
-                체험
-              </button>
+              <Button className="text-xs">체험</Button>
               {!c.added && (
-                <button type="button" aria-label="추가" className="rounded-lg bg-accent px-2.5 py-1 text-xs text-accent-fg">
+                <Button variant="primary" aria-label="추가" className="text-xs">
                   +
-                </button>
+                </Button>
               )}
             </div>
           </div>
-        </div>
+        </Card>
       ))}
     </div>
   );
@@ -201,56 +187,46 @@ export default function CustomizePanel({ kind, onKindChange, hideTitle = false }
   return (
     <div className="flex min-w-0 flex-col gap-4">
       {onKindChange && (
-        <div className="flex gap-1">
-          {KINDS.map((k) => (
-            <button key={k} type="button" onClick={() => onKindChange(k)} className={tabCls(k === kind)}>
-              {KIND_LABEL[k]}
-            </button>
-          ))}
-        </div>
+        <Tabs value={kind} options={KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] }))} onChange={onKindChange} />
       )}
       <div className="flex items-center gap-2">
         {hideTitle ? <span className="mr-auto" /> : <h2 className="mr-auto text-lg font-semibold text-fg">{KIND_LABEL[kind]}</h2>}
         <div className="relative">
-          <button
-            type="button"
-            onClick={() => setAddOpen((v) => !v)}
-            className="rounded-lg bg-accent px-3 py-1.5 text-sm text-accent-fg"
-          >
+          <Button variant="primary" onClick={() => setAddOpen((v) => !v)}>
             + 추가 ▾
-          </button>
+          </Button>
           {addOpen && (
-            <div className="absolute right-0 top-full z-10 mt-1 flex min-w-40 flex-col rounded-xl border border-line bg-surface p-1 shadow-lg">
+            <Menu className="absolute right-0 top-full z-10 mt-1">
               {(kind === "connectors" ? ["웹 커넥터 추가", "로컬 커넥터 추가"] : kind === "skills" ? ["직접 만들기", "URL로 가져오기", "파일 올리기"] : ["URL로 설치", "파일 올리기"]).map((t) => (
-                <button key={t} type="button" onClick={() => setAddOpen(false)} className="rounded-lg px-2 py-1.5 text-left text-sm text-fg hover:bg-surface-2">
+                <MenuItem key={t} onClick={() => setAddOpen(false)}>
                   {t}
-                </button>
+                </MenuItem>
               ))}
-            </div>
+            </Menu>
           )}
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <div className="flex gap-1">
-          <button type="button" onClick={() => setView("mine")} className={tabCls(view === "mine")}>
-            내 항목
-          </button>
-          <button type="button" onClick={() => setView("explore")} className={tabCls(view === "explore")}>
-            탐색
-          </button>
-        </div>
-        <input
+        <Tabs
+          value={view}
+          options={[
+            { id: "mine", label: "내 항목" },
+            { id: "explore", label: "탐색" },
+          ]}
+          onChange={setView}
+        />
+        <Input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="검색"
           aria-label="검색"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-surface px-3 py-1.5 text-sm text-fg outline-none placeholder:text-muted focus:border-accent"
+          className="min-w-0 flex-1 text-sm"
         />
         <select
           value={sort}
           onChange={(e) => setSort(e.target.value as Sort)}
           aria-label="정렬"
-          className="rounded-lg border border-line bg-surface px-2 py-1.5 text-sm text-fg"
+          className="rounded-control border border-line bg-surface px-2 py-1.5 text-sm text-fg"
         >
           <option value="name">이름순</option>
           <option value="recent">최근순</option>

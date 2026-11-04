@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import type { ReactNode } from "react";
+import { IconButton } from "../ui";
 
 /**
  * Full-screen page used for 채팅 목록 / 프로젝트 / 아티팩트. Sits above the app (z-40), Esc closes.
@@ -24,9 +25,9 @@ export default function PageShell({
   return (
     <div className="fixed inset-0 z-40 flex flex-col bg-bg text-fg md:left-64">
       <header className="flex items-center gap-2 border-b border-line px-4 py-3">
-        <button type="button" onClick={onClose} aria-label="닫기" className="px-1 text-muted hover:text-fg">
+        <IconButton label="닫기" onClick={onClose}>
           ←
-        </button>
+        </IconButton>
         <h1 className="mr-auto text-lg font-semibold">{title}</h1>
         {actions}
       </header>

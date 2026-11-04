@@ -25,7 +25,7 @@ function inline(text: string, key = "i"): ReactNode[] {
     const tok = m[0];
     if (m[1]) {
       out.push(
-        <code key={k} className="rounded bg-surface-2 px-1 py-0.5 text-[0.9em]">
+        <code key={k} className="rounded-control bg-surface-2 px-1 py-0.5 font-mono text-sm">
           {tok.slice(1, -1)}
         </code>,
       );

@@ -3,6 +3,7 @@ import type { ChatHistoryItem } from "../types";
 import SidebarMenu from "./sidebar/SidebarMenu";
 import UserMenu from "./sidebar/UserMenu";
 import Overlays from "./Overlays";
+import { IconButton } from "./ui";
 import { BackIcon, ChatIcon, CodeIcon, ForwardIcon, PanelIcon } from "./sidebar/icons";
 
 export type SidebarProps = {
@@ -53,9 +54,8 @@ export default function Sidebar({ recent, onNew: onNewProp, userName, onLogout, 
       CLOSE_DRAWER_EVENTS.forEach((n) => window.removeEventListener(n, closeDrawer));
     };
   }, [onCloseProp, onNewProp]);
-  const iconBtn = "flex h-8 w-8 items-center justify-center rounded-lg text-muted hover:bg-surface-2 hover:text-fg";
   const tabCls = (on: boolean) =>
-    "flex h-7 w-8 items-center justify-center rounded-md " + (on ? "bg-bg text-fg" : "text-muted");
+    "flex h-7 w-8 pointer-coarse:min-h-11 items-center justify-center rounded-control " + (on ? "bg-bg text-fg" : "text-muted");
 
   return (
     <>
@@ -74,16 +74,16 @@ export default function Sidebar({ recent, onNew: onNewProp, userName, onLogout, 
         }
       >
         <div className="flex items-center gap-1">
-          <button type="button" onClick={onClose} aria-label="사이드바 접기" className={iconBtn}>
+          <IconButton label="사이드바 접기" onClick={onClose}>
             <PanelIcon />
-          </button>
-          <button type="button" aria-label="뒤로" className={iconBtn}>
+          </IconButton>
+          <IconButton label="뒤로">
             <BackIcon />
-          </button>
-          <button type="button" aria-label="앞으로" className={iconBtn}>
+          </IconButton>
+          <IconButton label="앞으로">
             <ForwardIcon />
-          </button>
-          <div className="ml-auto flex rounded-lg bg-surface-2 p-0.5">
+          </IconButton>
+          <div className="ml-auto flex rounded-control bg-surface-2 p-0.5">
             <button type="button" aria-label="Chat" onClick={() => setTab("chat")} className={tabCls(tab === "chat")}>
               <ChatIcon />
             </button>

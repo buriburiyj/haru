@@ -1,17 +1,9 @@
-/* Phone: touch targets are at least 44px (Apple HIG). Applies only to touch screens. */
+/* Phone. Touch size (44px) is built into the ui components with the pointer-coarse variant, not set globally here. */
 @media (pointer: coarse) {
-  button,
-  select,
-  [role="button"],
-  [role="switch"],
-  input[type="checkbox"] {
-    min-height: 44px;
-    min-width: 44px;
-  }
-  /* inline text-like buttons keep their line but get a taller hit area */
   textarea,
   input[type="text"],
   input[type="password"],
+  input[type="search"],
   input:not([type]) {
     font-size: 16px; /* prevents iOS zoom on focus */
   }

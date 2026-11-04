@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { Effort, ModelId } from "../../types";
-import { Row, panelCls, useDismiss } from "./ui";
+import { Chip, Menu, MenuDivider, MenuItem, SubMenu } from "../ui";
+import { useDismiss } from "./ui";
 
 const MODELS: { id: ModelId; label: string; desc: string }[] = [
   { id: "auto", label: "자동(기본)", desc: "상황에 맞는 모델을 자동으로 선택" },
@@ -35,10 +36,8 @@ export default function ModelMenu({
   onModelChange: (m: ModelId, e: Effort) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [sub, setSub] = useState<"effort" | "more" | null>(null);
   const close = () => {
     setOpen(false);
-    setSub(null);
   };
   const ref = useDismiss(open, close);
   const pick = (m: ModelId, e: Effort) => {
@@ -48,50 +47,33 @@ export default function ModelMenu({
 
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => (open ? close() : setOpen(true))}
-        className="flex h-8 items-center gap-1 rounded-lg px-2 text-sm text-muted hover:bg-surface-2"
-      >
-        <span>{modelLabel(model)}</span>
-        <span aria-hidden>▾</span>
-      </button>
+      <Chip caret aria-expanded={open} onClick={() => (open ? close() : setOpen(true))}>
+        {modelLabel(model)}
+      </Chip>
       {open && (
-        <div className={`${panelCls} bottom-full right-0 mb-2 w-72`}>
+        <Menu className="absolute bottom-full right-0 z-20 mb-2 w-72">
           {MODELS.map((m) => (
-            <Row
-              key={m.id}
-              label={m.label}
-              desc={m.desc}
-              checked={m.id === model}
-              onHover={() => setSub(null)}
-              onClick={() => pick(m.id, effort)}
-            />
+            <MenuItem key={m.id} hint={m.desc} check={m.id === model} onClick={() => pick(m.id, effort)}>
+              {m.label}
+            </MenuItem>
           ))}
-          <div className="my-1 border-t border-line" />
-          <Row label="노력" arrow onHover={() => setSub("effort")}>
-            {sub === "effort" && (
-              <div className={`${panelCls} right-full top-0 mr-1`}>
-                {EFFORTS.map((e) => (
-                  <Row key={e.id} label={e.label} checked={e.id === effort} onClick={() => pick(model, e.id)} />
-                ))}
-              </div>
-            )}
-          </Row>
-          <Row label="더 많은 모델" arrow onHover={() => setSub("more")}>
-            {sub === "more" && (
-              <div className={`${panelCls} right-full top-0 mr-1`}>
-                {MORE.map((m) => (
-                  <Row key={m.id} label={m.label} checked={m.id === model} onClick={() => pick(m.id, effort)} />
-                ))}
-              </div>
-            )}
-          </Row>
-          <p className="px-3 py-2 text-xs text-muted">
-            무료 한도를 모두 쓰면 다른 모델로 자동 전환됩니다.
-          </p>
-        </div>
+          <MenuDivider />
+          <SubMenu label="노력" side="left">
+            {EFFORTS.map((e) => (
+              <MenuItem key={e.id} check={e.id === effort} onClick={() => pick(model, e.id)}>
+                {e.label}
+              </MenuItem>
+            ))}
+          </SubMenu>
+          <SubMenu label="더 많은 모델" side="left">
+            {MORE.map((m) => (
+              <MenuItem key={m.id} check={m.id === model} onClick={() => pick(m.id, effort)}>
+                {m.label}
+              </MenuItem>
+            ))}
+          </SubMenu>
+          <p className="px-3 py-2 text-xs text-muted">무료 한도를 모두 쓰면 다른 모델로 자동 전환됩니다.</p>
+        </Menu>
       )}
     </div>
   );

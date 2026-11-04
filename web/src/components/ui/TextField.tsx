@@ -6,7 +6,7 @@ const BASE =
 
 /** Single-line input, 44px high. Focus shows the accent border. */
 export function Input({ className, ...rest }: InputHTMLAttributes<HTMLInputElement>) {
-  return <input className={cx(BASE, "min-h-11", className)} {...rest} />;
+  return <input className={cx(BASE, "min-h-10 pointer-coarse:min-h-11", className)} {...rest} />;
 }
 
 /** Multi-line input. */

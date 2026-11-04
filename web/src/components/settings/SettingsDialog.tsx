@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import CustomizePanel from "../customize/CustomizePanel";
 import type { Kind } from "../customize/sample";
-import { FONT_SIZES, THEMES, getFontSize, getTheme, setFontSize, setTheme } from "./appearance";
+import { Button, Card, IconButton, Input, Tabs, cx } from "../ui";
+import { FONTS, FONT_SIZES, THEMES, getFont, getFontSize, getTheme, setFont, setFontSize, setTheme } from "./appearance";
 
 type Row =
-  | { label: string; kind: "seg"; options: string[]; initial?: number; store?: "theme" | "fontSize" }
+  | { label: string; kind: "seg"; options: string[]; initial?: number; store?: "theme" | "fontSize" | "font" }
   | { label: string; kind: "toggle"; on?: boolean }
   | { label: string; kind: "value"; value: string }
   | { label: string; kind: "button"; text: string; danger?: boolean };
@@ -22,8 +23,7 @@ const PAGES: Page[] = [
     title: "일반",
     rows: [
       { label: "테마", kind: "seg", options: ["시스템", "라이트", "다크"], store: "theme" },
-      { label: "인터페이스 글꼴", kind: "seg", options: ["기본", "시스템"] },
-      { label: "응답 글꼴", kind: "seg", options: ["기본", "시스템", "고정폭"] },
+      { label: "글꼴", kind: "seg", options: ["기본", "고딕", "시스템"], store: "font" },
       { label: "글꼴 크기", kind: "seg", options: ["작게", "보통", "크게"], initial: 1, store: "fontSize" },
       { label: "대화 너비", kind: "seg", options: ["좁게", "기본", "넓게"], initial: 1 },
       { label: "모션", kind: "seg", options: ["시스템", "줄이기", "켜기"] },
@@ -153,30 +153,25 @@ function Control({ row }: { row: Row }) {
     if (row.kind !== "seg") return 0;
     if (row.store === "theme") return THEMES.indexOf(getTheme());
     if (row.store === "fontSize") return FONT_SIZES.indexOf(getFontSize());
+    if (row.store === "font") return FONTS.indexOf(getFont());
     return row.initial ?? 0;
   });
   const [on, setOn] = useState(row.kind === "toggle" ? !!row.on : false);
 
   if (row.kind === "seg") {
     return (
-      <div className="inline-flex rounded-lg border border-line bg-surface p-0.5">
-        {row.options.map((o, i) => (
-          <button
-            key={o}
-            type="button"
-            onClick={() => {
-              setSel(i);
-              if (row.store === "theme") setTheme(THEMES[i]);
-              if (row.store === "fontSize") setFontSize(FONT_SIZES[i]);
-            }}
-            className={`rounded-md px-3 py-1 text-sm ${
-              sel === i ? "bg-accent text-accent-fg" : "text-muted"
-            }`}
-          >
-            {o}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        label={row.label}
+        value={String(sel)}
+        options={row.options.map((o, i) => ({ id: String(i), label: o }))}
+        onChange={(v) => {
+          const i = Number(v);
+          setSel(i);
+          if (row.store === "theme") setTheme(THEMES[i]);
+          if (row.store === "fontSize") setFontSize(FONT_SIZES[i]);
+          if (row.store === "font") setFont(FONTS[i]);
+        }}
+      />
     );
   }
   if (row.kind === "toggle") {
@@ -186,24 +181,15 @@ function Control({ row }: { row: Row }) {
         role="switch"
         aria-checked={on}
         onClick={() => setOn(!on)}
-        className={`relative h-6 w-10 rounded-full border border-line ${on ? "bg-accent" : "bg-surface-2"}`}
+        className={cx("relative h-6 w-10 shrink-0 rounded-pill border border-line", on ? "bg-accent" : "bg-surface-2")}
       >
-        <span
-          className={`absolute top-0.5 h-4 w-4 rounded-full bg-bg ${on ? "left-5" : "left-0.5"}`}
-        />
+        <span className={cx("absolute top-0.5 h-4 w-4 rounded-pill bg-bg", on ? "left-5" : "left-0.5")} />
       </button>
     );
   }
   if (row.kind === "value") return <span className="text-sm text-muted">{row.value}</span>;
   return (
-    <button
-      type="button"
-      className={`rounded-lg border border-line bg-surface px-3 py-1 text-sm ${
-        row.danger ? "text-danger" : "text-fg"
-      }`}
-    >
-      {row.text}
-    </button>
+    <Button className={row.danger ? "text-danger" : undefined}>{row.text}</Button>
   );
 }
 
@@ -248,39 +234,37 @@ export default function SettingsDialog({
       <div
         role="dialog"
         aria-label="설정"
-        className="flex h-full w-full overflow-hidden bg-bg text-fg md:h-[min(40rem,100%)] md:max-w-3xl md:rounded-2xl md:border md:border-line"
+        className="flex h-full w-full overflow-hidden bg-bg text-fg md:h-160 md:max-h-full md:max-w-3xl md:rounded-card md:border md:border-line"
       >
         <nav
           className={`${detailOpen ? "hidden" : "flex"} w-full flex-col gap-3 overflow-y-auto border-line bg-surface p-3 md:flex md:w-56 md:shrink-0 md:border-r`}
         >
           <div className="flex items-center gap-2">
-            <input
+            <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="설정 검색"
-              className="min-w-0 flex-1 rounded-lg border border-line bg-bg px-3 py-1.5 text-sm text-fg outline-none placeholder:text-muted"
+              className="min-w-0 flex-1 text-sm"
             />
-            <button type="button" onClick={onClose} aria-label="닫기" className="px-2 text-muted md:hidden">
+            <IconButton label="닫기" onClick={onClose} className="md:hidden">
               ✕
-            </button>
+            </IconButton>
           </div>
           {groups.map((g) => (
             <div key={g.name} className="flex flex-col gap-0.5">
               <div className="px-2 py-1 text-xs text-muted">{g.name}</div>
               {g.pages.map((p) => (
-                <button
+                <Button
                   key={p.id}
-                  type="button"
+                  variant={current === p.id ? "secondary" : "ghost"}
                   onClick={() => {
                     setCurrent(p.id);
                     setDetailOpen(true);
                   }}
-                  className={`rounded-lg px-2 py-1.5 text-left text-sm ${
-                    current === p.id ? "bg-surface-2 text-fg" : "text-fg"
-                  }`}
+                  className="justify-start px-2 text-left font-normal"
                 >
                   {p.title}
-                </button>
+                </Button>
               ))}
             </div>
           ))}
@@ -290,26 +274,19 @@ export default function SettingsDialog({
           className={`${detailOpen ? "flex" : "hidden"} min-w-0 flex-1 flex-col overflow-y-auto p-5 md:flex`}
         >
           <div className="mb-4 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setDetailOpen(false)}
-              aria-label="뒤로"
-              className="px-1 text-muted md:hidden"
-            >
+            <IconButton label="뒤로" onClick={() => setDetailOpen(false)} className="md:hidden">
               ←
-            </button>
+            </IconButton>
             <h2 className="flex-1 text-lg font-semibold">{page.title}</h2>
-            <button type="button" onClick={onClose} aria-label="닫기" className="hidden px-2 text-muted md:block">
+            <IconButton label="닫기" onClick={onClose} className="hidden md:inline-flex">
               ✕
-            </button>
+            </IconButton>
           </div>
           {(page.id === "skills" || page.id === "connectors" || page.id === "plugins") && (
             <CustomizePanel kind={page.id as Kind} hideTitle />
           )}
           {page.id !== "skills" && page.id !== "connectors" && page.id !== "plugins" && page.rows.length === 0 && page.empty && (
-            <div className="rounded-xl border border-line bg-surface p-6 text-center text-sm text-muted">
-              {page.empty}
-            </div>
+            <Card className="p-6 text-center text-sm text-muted">{page.empty}</Card>
           )}
           <div className="flex flex-col">
             {page.id !== "skills" && page.id !== "connectors" && page.id !== "plugins" && page.rows.map((r) => (

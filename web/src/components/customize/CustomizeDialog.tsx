@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { IconButton } from "../ui";
 import CustomizePanel from "./CustomizePanel";
 import type { Kind } from "./sample";
 
@@ -18,11 +19,11 @@ export default function CustomizeDialog({ onClose, initial = "skills" }: { onClo
       <div
         role="dialog"
         aria-label="사용자 지정"
-        className="relative flex h-full w-full flex-col overflow-y-auto bg-bg p-5 text-fg md:h-[min(40rem,100%)] md:max-w-3xl md:rounded-2xl md:border md:border-line"
+        className="relative flex h-full w-full flex-col overflow-y-auto bg-bg p-5 text-fg md:h-160 md:max-h-full md:max-w-3xl md:rounded-card md:border md:border-line"
       >
-        <button type="button" onClick={onClose} aria-label="닫기" className="absolute right-4 top-4 px-2 text-muted">
+        <IconButton label="닫기" onClick={onClose} className="absolute right-4 top-4">
           ✕
-        </button>
+        </IconButton>
         <CustomizePanel kind={kind} onKindChange={setKind} />
       </div>
     </div>

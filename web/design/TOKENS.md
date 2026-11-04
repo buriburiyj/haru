@@ -35,7 +35,7 @@ Weights bundled: Pretendard variable (split by unicode-range), Source Serif 4 40
 | rounded-bubble | --haru-radius-bubble | 1.25rem | my message bubble |
 | rounded-pill | --haru-radius-pill | full | chips |
 | shadow-pop | --haru-shadow-pop | soft | menus and dialogs only |
-Control height: 2.75rem (44px) is built into Button, IconButton, Input, Chip, MenuItem. Spacing uses the Tailwind 4px scale (p-2, gap-3, px-4); page content max width max-w-3xl, forms max-w-2xl.
+Touch size: on touch screens (pointer: coarse) Button, IconButton, Input, Chip, Tabs and MenuItem are at least 44px; on mouse screens they keep the compact size. No global rule. Spacing uses the Tailwind 4px scale (p-2, gap-3, px-4); page content max width max-w-3xl, forms max-w-2xl.
 
 ## Components (`web/src/components/ui/`)
 Button (primary / secondary / ghost / danger), IconButton (label required), Input, Textarea, Card, UserBubble, Reply, Tabs, Dialog (full screen on phone), cx().

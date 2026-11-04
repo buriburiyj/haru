@@ -3,6 +3,7 @@
 Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 
 ## 진행 중
+- [창A] 디자인 바탕 2차 완료(빌드·tsc 통과, 눈으로 확인 전): 모든 기존 화면을 components/ui/로 이전(사이드바, 첫 화면, 입력창, 대화, 설정, 검색, 사용자 지정, 채팅 목록, 프로젝트, 아티팩트, 로그인). mobile.css의 44px 일괄 규칙 삭제 -> ui 컴포넌트의 pointer-coarse 변형으로 처리. 직접 쓴 색/크기/모서리 grep 0건. 눈에 보이는 변화: 답변 글자가 읽기 글꼴(Reply), 삭제 확인 창이 Dialog(✕ 표시, 폰은 전체화면), 일부 호버 버튼 높이 36px. 남은 것: 사이드바 Chat/Code 아이콘 탭, 설정 스위치, 검색창 입력, OfflineNotice는 ui 컴포넌트가 없어 직접 작성 상태.
 - [창A] 1단계 1차 완료(빌드 통과, 실기기 확인 전): 디자인 토큰(styles/tokens.css, theme.css, fonts.css), 공통 컴포넌트(components/ui/), web/design/TOKENS.md, 확인 화면 /haru/?demo=ui(로그인·서버 없음). 글꼴: Pretendard 동적 서브셋, 마루 부리 400/700 + Source Serif 4 400/700 + JetBrains Mono 400, 라이선스 web/public/licenses/FONTS.md. 기존 화면 이전은 2차(승인 대기).
 - [창A] 이름 변경: Cowork -> Work (SPEC, STEPS, web 코드 16곳). STEPS 순서: 0 서버·로그인(완료) -> 1 디자인 바탕 -> 2 Chat 기본 -> 3 사용자 지정 -> 4 Work -> 5 Code -> 6 맥 앱 -> 7 예약 작업 -> 8 마지막 다듬기. 1단계는 계획 승인 대기.
 - [창A] 홈 화면 앱 준비 완료(빌드 통과, 실기기 확인 전): manifest(public/manifest.webmanifest), 아이콘 public/icons/ (180, 192, maskable 192), apple-touch-icon을 index.html에 연결, safe-area 여백(styles/mobile.css, #root), 오프라인 안내(components/OfflineNotice.tsx, 서비스 워커 없음). 512 아이콘은 원본이 ~194px라 만들지 않음(고해상도 원본 필요).

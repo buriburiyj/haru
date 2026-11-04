@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Row, panelCls, useDismiss } from "./ui";
+import { IconButton, Menu, MenuItem, SubMenu } from "../ui";
+import { useDismiss } from "./ui";
 
 const SUB: Record<string, string[]> = {
   project: ["프로젝트 없음", "새 프로젝트 만들기"],
@@ -15,48 +16,36 @@ export default function PlusMenu({
   onToggleWebSearch: () => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [sub, setSub] = useState<string | null>(null);
   const close = () => {
     setOpen(false);
-    setSub(null);
   };
   const ref = useDismiss(open, close);
 
-  const submenu = (key: string) =>
-    sub === key && (
-      <div className={`${panelCls} left-full top-0 ml-1`}>
-        {SUB[key].map((t) => (
-          <Row key={t} label={t} onClick={close} />
-        ))}
-      </div>
-    );
+  const items = (key: string) =>
+    SUB[key].map((t) => (
+      <MenuItem key={t} onClick={close}>
+        {t}
+      </MenuItem>
+    ));
 
   return (
     <div ref={ref} className="relative">
-      <button
-        type="button"
-        aria-label="추가"
-        aria-expanded={open}
-        onClick={() => (open ? close() : setOpen(true))}
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-lg text-muted hover:bg-surface-2"
-      >
-        +
-      </button>
+      <IconButton label="추가" aria-expanded={open} onClick={() => (open ? close() : setOpen(true))}>
+        <span className="text-lg">+</span>
+      </IconButton>
       {open && (
-        <div className={`${panelCls} bottom-full left-0 mb-2`}>
-          <Row label="파일 업로드" hint="⌘U" onHover={() => setSub(null)} onClick={close} />
-          <Row label="프로젝트에 추가" arrow onHover={() => setSub("project")}>
-            {submenu("project")}
-          </Row>
-          <Row label="Skills" arrow onHover={() => setSub("skills")}>
-            {submenu("skills")}
-          </Row>
-          <Row label="커넥터" arrow onHover={() => setSub("connectors")}>
-            {submenu("connectors")}
-          </Row>
-          <Row label="플러그인 추가" onHover={() => setSub(null)} onClick={close} />
-          <Row label="웹 검색" checked={webSearch} onHover={() => setSub(null)} onClick={onToggleWebSearch} />
-        </div>
+        <Menu className="absolute bottom-full left-0 z-20 mb-2">
+          <MenuItem shortcut="⌘U" onClick={close}>
+            파일 업로드
+          </MenuItem>
+          <SubMenu label="프로젝트에 추가">{items("project")}</SubMenu>
+          <SubMenu label="Skills">{items("skills")}</SubMenu>
+          <SubMenu label="커넥터">{items("connectors")}</SubMenu>
+          <MenuItem onClick={close}>플러그인 추가</MenuItem>
+          <MenuItem toggle={webSearch} onClick={onToggleWebSearch}>
+            웹 검색
+          </MenuItem>
+        </Menu>
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import ActionButton, { copyText } from "./ActionButton";
 import BranchSwitcher from "./BranchSwitcher";
+import { Button, Textarea, UserBubble } from "../ui";
 
 // Edited versions are kept locally for now (old versions are never deleted).
 // Later the real branch tree comes from the chat file via useChat.
@@ -26,8 +27,8 @@ export default function UserMessage({ content, time }: { content: string; time?:
   return (
     <div className="group flex flex-col items-end gap-1">
       {editing ? (
-        <div className="w-full max-w-[85%] rounded-2xl border border-line bg-surface p-3 focus-within:border-accent">
-          <textarea
+        <div className="w-full max-w-5/6">
+          <Textarea
             autoFocus
             rows={3}
             aria-label="메시지 편집"
@@ -37,19 +38,19 @@ export default function UserMessage({ content, time }: { content: string; time?:
               if (e.key === "Escape") setEditing(false);
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
             }}
-            className="block w-full resize-none bg-transparent text-fg outline-none"
+            className="block resize-none"
           />
           <div className="mt-2 flex justify-end gap-2">
-            <button type="button" onClick={() => setEditing(false)} className="rounded-lg border border-line px-3 py-1 text-sm text-fg hover:bg-surface-2">
-              취소
-            </button>
-            <button type="button" onClick={save} className="rounded-lg bg-accent px-3 py-1 text-sm text-accent-fg">
+            <Button onClick={() => setEditing(false)}>취소</Button>
+            <Button variant="primary" onClick={save}>
               저장
-            </button>
+            </Button>
           </div>
         </div>
       ) : (
-        <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl bg-bubble px-4 py-2.5 text-fg">{shown}</div>
+        <div className="w-full">
+          <UserBubble>{shown}</UserBubble>
+        </div>
       )}
       {!editing && (
         <div className="flex items-center gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">

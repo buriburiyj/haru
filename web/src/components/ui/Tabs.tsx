@@ -7,14 +7,16 @@ export function Tabs<T extends string>({
   options,
   onChange,
   label,
+  className,
 }: {
   value: T;
   options: { id: T; label: string }[];
   onChange: (v: T) => void;
   label?: string;
+  className?: string;
 }) {
   return (
-    <div role="tablist" aria-label={label} className="inline-flex rounded-control bg-surface-2 p-0.5">
+    <div role="tablist" aria-label={label} className={cx("inline-flex rounded-control bg-surface-2 p-0.5", className)}>
       {options.map((o) => (
         <button
           key={o.id}
@@ -23,7 +25,7 @@ export function Tabs<T extends string>({
           aria-selected={o.id === value}
           onClick={() => onChange(o.id)}
           className={cx(
-            "min-h-10 rounded-control px-3 text-sm transition-colors",
+            "min-h-8 pointer-coarse:min-h-11 rounded-control px-3 text-sm transition-colors",
             o.id === value ? "bg-bg text-fg" : "text-muted hover:text-fg",
           )}
         >
@@ -53,7 +55,7 @@ export function Chip({
       aria-pressed={caret ? undefined : selected}
       aria-haspopup={caret ? "menu" : undefined}
       className={cx(
-        "inline-flex min-h-11 items-center gap-1.5 rounded-pill border border-line px-4 text-sm transition-colors",
+        "inline-flex min-h-9 pointer-coarse:min-h-11 items-center gap-1.5 rounded-pill border border-line px-4 text-sm transition-colors",
         selected ? "bg-accent text-accent-fg" : "bg-surface text-muted hover:text-fg",
         className,
       )}

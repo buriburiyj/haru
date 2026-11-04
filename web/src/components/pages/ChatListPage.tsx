@@ -1,5 +1,6 @@
 import { useState } from "react";
 import PageShell from "./PageShell";
+import { Button, Chip, Input } from "../ui";
 import ConfirmDialog from "../confirm/ConfirmDialog";
 import type { ChatListItem } from "./types";
 
@@ -60,38 +61,23 @@ export default function ChatListPage({
 
   const actions = (
     <>
-      <button
-        type="button"
-        onClick={toggleSelecting}
-        className={`min-h-11 rounded-lg border border-line px-3 text-sm ${selecting ? "bg-surface-2 text-fg" : "text-muted hover:text-fg"}`}
-      >
+      <Button onClick={toggleSelecting} className={selecting ? "bg-surface-2" : "text-muted"}>
         선택
-      </button>
-      <button type="button" onClick={newChat} className="min-h-11 rounded-lg bg-accent px-3 text-sm text-accent-fg">
+      </Button>
+      <Button variant="primary" onClick={newChat}>
         새로 만들기
-      </button>
+      </Button>
     </>
   );
 
   return (
     <PageShell title="채팅 및 작업" onClose={onClose} actions={actions}>
-      <input
-        type="search"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="채팅 검색"
-        className="min-h-11 w-full rounded-lg border border-line bg-surface px-3 text-fg placeholder:text-muted"
-      />
+      <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="채팅 검색" />
       <div className="mt-3 flex flex-wrap gap-2">
         {FILTERS.map((f) => (
-          <button
-            key={f}
-            type="button"
-            onClick={() => setFilter(f)}
-            className={`min-h-11 rounded-full border border-line px-4 text-sm ${filter === f ? "bg-accent text-accent-fg" : "bg-surface text-muted hover:text-fg"}`}
-          >
+          <Chip key={f} selected={filter === f} onClick={() => setFilter(f)}>
             {f}
-          </button>
+          </Chip>
         ))}
       </div>
       <ul className={`mt-4 divide-y divide-line ${selecting ? "pb-24" : ""}`}>
@@ -101,7 +87,7 @@ export default function ChatListPage({
             <div
               role="button"
               onClick={selecting ? () => toggleRow(c.id) : () => onOpen?.(c.id)}
-              className="flex min-h-11 items-center gap-3 py-3"
+              className="flex pointer-coarse:min-h-11 items-center gap-3 py-3"
             >
               {selecting && (
                 <input
@@ -123,14 +109,9 @@ export default function ChatListPage({
         <div className="fixed inset-x-0 bottom-0 z-50 border-t border-line bg-surface px-4 py-3 md:left-64">
           <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
             <span className="mr-auto text-sm">{selected.length}개 선택</span>
-            <button
-              type="button"
-              disabled={selected.length === 0}
-              onClick={() => setConfirming(true)}
-              className="min-h-11 rounded-lg border border-line px-4 text-sm text-danger disabled:opacity-50"
-            >
+            <Button disabled={selected.length === 0} onClick={() => setConfirming(true)} className="text-danger">
               삭제
-            </button>
+            </Button>
           </div>
         </div>
       )}

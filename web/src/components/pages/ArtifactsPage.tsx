@@ -1,5 +1,6 @@
 import { useState } from "react";
 import PageShell from "./PageShell";
+import { Button, Card, Tabs } from "../ui";
 
 type Owner = "mine" | "shared";
 type Item = { id: number; title: string; type: string; date: string; owner: Owner };
@@ -30,31 +31,16 @@ export default function ArtifactsPage({ onClose }: { onClose: () => void }) {
 
   return (
     <PageShell title="아티팩트" onClose={onClose}>
-      <div role="tablist" className="flex gap-2">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.key}
-            onClick={() => setTab(t.key)}
-            className={`min-h-11 rounded-full border border-line px-4 text-sm ${tab === t.key ? "bg-accent text-accent-fg" : "bg-surface text-muted hover:text-fg"}`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      <Tabs value={tab} options={TABS.map((t) => ({ id: t.key, label: t.label }))} onChange={setTab} />
 
       <h2 className="mt-6 text-sm font-semibold text-muted">템플릿</h2>
       <div className="mt-2 grid gap-3 sm:grid-cols-3">
         {TEMPLATES.map((t) => (
-          <div key={t.name} className="flex flex-col gap-2 rounded-xl border border-line bg-surface p-4">
+          <Card key={t.name} className="flex flex-col gap-2">
             <div className="font-semibold">{t.name}</div>
             <p className="flex-1 text-sm text-muted">{t.desc}</p>
-            <button type="button" className="min-h-11 rounded-lg bg-accent px-3 text-sm text-accent-fg">
-              만들기
-            </button>
-          </div>
+            <Button variant="primary">만들기</Button>
+          </Card>
         ))}
       </div>
 
@@ -64,12 +50,12 @@ export default function ArtifactsPage({ onClose }: { onClose: () => void }) {
       ) : (
         <div className="mt-2 grid gap-3 sm:grid-cols-2">
           {items.map((i) => (
-            <div key={i.id} className="rounded-xl border border-line bg-surface-2 p-4">
+            <Card key={i.id} className="bg-surface-2">
               <div className="truncate font-medium">{i.title}</div>
               <div className="mt-1 text-sm text-muted">
                 {i.type} · {i.date}
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}

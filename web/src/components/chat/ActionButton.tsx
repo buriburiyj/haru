@@ -1,16 +1,11 @@
 import type { ReactNode } from "react";
+import { Button } from "../ui";
 
 export default function ActionButton({ label, onClick, children }: { label: string; onClick?: () => void; children: ReactNode }) {
   return (
-    <button
-      type="button"
-      title={label}
-      aria-label={label}
-      onClick={onClick}
-      className="rounded-md px-1.5 py-1 text-xs text-muted hover:bg-surface-2 hover:text-fg"
-    >
+    <Button variant="ghost" title={label} aria-label={label} onClick={onClick} className="px-2 text-xs text-muted hover:text-fg">
       {children}
-    </button>
+    </Button>
   );
 }
 

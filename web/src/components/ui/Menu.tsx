@@ -49,7 +49,7 @@ export function MenuItem({
       role={isToggle ? "menuitemcheckbox" : "menuitem"}
       aria-checked={isToggle ? toggle : check}
       className={cx(
-        "flex min-h-11 w-full items-center gap-2 rounded-control px-3 text-left text-sm hover:bg-surface-2",
+        "flex min-h-9 pointer-coarse:min-h-11 w-full items-center gap-2 rounded-control px-3 text-left text-sm hover:bg-surface-2",
         danger ? "text-danger" : "text-fg",
         className,
       )}
@@ -80,10 +80,10 @@ export function MenuDivider() {
 }
 
 /**
- * Item that opens a sub menu. Desktop: panel opens to the side (hover or click).
+ * Item that opens a sub menu. Desktop: panel opens to the side (`side`: right by default, left for menus near the right edge).
  * Phone: the panel opens indented right under the item (no side space).
  */
-export function SubMenu({ label, children, ...extras }: { label: ReactNode; children: ReactNode } & ItemExtras) {
+export function SubMenu({ label, children, side = "right", ...extras }: { label: ReactNode; children: ReactNode; side?: "left" | "right" } & ItemExtras) {
   const [open, setOpen] = useState(false);
   return (
     <div className="group relative" onMouseLeave={() => setOpen(false)}>
@@ -91,7 +91,7 @@ export function SubMenu({ label, children, ...extras }: { label: ReactNode; chil
         {label}
       </MenuItem>
       {open && (
-        <Menu className="mt-1 ml-3 md:absolute md:left-full md:top-0 md:mt-0 md:ml-1">{children}</Menu>
+        <Menu className={cx("mt-1 ml-3 md:absolute md:top-0 md:mt-0 md:ml-0", side === "left" ? "md:right-full md:mr-1" : "md:left-full md:ml-1")}>{children}</Menu>
       )}
     </div>
   );

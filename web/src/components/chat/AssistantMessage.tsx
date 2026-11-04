@@ -4,6 +4,7 @@ import BranchSwitcher from "./BranchSwitcher";
 import Thinking from "./Thinking";
 import Markdown from "../markdown/Markdown";
 import type { ArtifactData } from "../artifact/types";
+import { Reply } from "../ui";
 
 type Part = { kind: "think" | "text"; text: string };
 
@@ -54,9 +55,9 @@ export default function AssistantMessage({
   return (
     <div className="group flex w-full flex-col items-start gap-1">
       {content ? (
-        <div className="w-full max-w-full">{body}</div>
+        <Reply className="max-w-full">{body}</Reply>
       ) : (
-        pending && <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-muted" aria-label="응답 중" />
+        pending && <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-pill bg-muted" aria-label="응답 중" />
       )}
       {content && !pending && modelName && <span className="text-xs text-muted">{modelName}</span>}
       {branches > 1 && <BranchSwitcher idx={branchIdx} total={branches} onChange={(n) => onBranchChange?.(n)} />}

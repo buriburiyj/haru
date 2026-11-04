@@ -17,7 +17,7 @@ export default function IconButton({
       title={label}
       aria-pressed={active}
       className={cx(
-        "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-control transition-colors hover:bg-surface-2",
+        "inline-flex h-9 w-9 pointer-coarse:h-11 pointer-coarse:w-11 shrink-0 items-center justify-center rounded-control transition-colors hover:bg-surface-2",
         active ? "text-accent" : "text-muted hover:text-fg",
         className,
       )}
