@@ -90,10 +90,26 @@ class CodexTest(unittest.TestCase):
         (codex._cleanup, codex.asyncio.sleep, codex._disabled_until, codex._usage,
          codex.TOTAL_TIMEOUT, codex.MONTHLY_LIMIT_MIN) = self.orig
 
-    def run_codex(self, models=None):
+    def run_codex(self, models=None, effort=""):
         async def go():
-            return await collect(codex.run(self.msgs, models or router.CODEX_MODELS))
+            return await collect(codex.run(self.msgs, models or router.CODEX_MODELS, effort))
         return asyncio.run(go())
+
+    def job_request(self):
+        path = next(p for p in self.gh.files if p.startswith(".agent/jobs/"))
+        return json.loads(self.gh.files[path])
+
+    def test_effort_is_passed_to_the_job_only_when_valid(self):
+        self.run_codex(effort="high")
+        self.assertEqual(self.job_request()["effort"], "high")
+        self.gh.files.clear()
+        self.gh.polls = 0
+        self.run_codex(effort="bogus")
+        self.assertNotIn("effort", self.job_request())
+        self.gh.files.clear()
+        self.gh.polls = 0
+        self.run_codex()
+        self.assertNotIn("effort", self.job_request())
 
     def test_success_streams_text_and_records_usage(self):
         out = self.run_codex()
@@ -149,12 +165,12 @@ class RouterCodexTest(unittest.TestCase):
     def tearDown(self):
         httpx.AsyncClient = REAL_CLIENT
 
-    def route(self, mode, fake_codex):
+    def route(self, mode, fake_codex, effort=""):
         patch(lambda req: httpx.Response(200, text='data: {"choices":[{"delta":{"content":"n"}}]}\n\ndata: [DONE]\n\n'))
         orig = router.codex.run
         router.codex.run = fake_codex
         try:
-            return asyncio.run(collect(router.route([{"role": "user", "content": "q"}], mode)))
+            return asyncio.run(collect(router.route([{"role": "user", "content": "q"}], mode, effort)))
         finally:
             router.codex.run = orig
 
@@ -167,7 +183,7 @@ class RouterCodexTest(unittest.TestCase):
     def test_hard_uses_codex_with_model_order(self):
         seen = {}
 
-        async def fake(messages, models):
+        async def fake(messages, models, effort=""):
             seen["models"] = models
             yield "model", "gpt-6-luna"
             yield "delta", "from codex"
@@ -177,7 +193,7 @@ class RouterCodexTest(unittest.TestCase):
         self.assertEqual(out, [("model", "gpt-6-luna"), ("delta", "from codex")])
 
     def test_codex_failure_falls_to_nvidia_with_notice(self):
-        async def fake(messages, models):
+        async def fake(messages, models, effort=""):
             raise codex.CodexUnavailable("x")
             yield
 
@@ -185,10 +201,31 @@ class RouterCodexTest(unittest.TestCase):
         self.assertEqual(out[0], ("notice", "Codex를 쓸 수 없어서 다른 모델로 답해요."))
         self.assertEqual(out[1], ("model", router.NVIDIA_MODELS[0]))
 
+    def test_effort_reaches_codex_but_not_groq_or_nvidia(self):
+        seen = {}
+
+        async def fake(messages, models, effort=""):
+            seen["effort"] = effort
+            yield "delta", "x"
+
+        self.route("hard", fake, effort="medium")
+        self.assertEqual(seen["effort"], "medium")
+        bodies = []
+
+        def h(req):
+            bodies.append(json.loads(req.content))
+            return httpx.Response(200, text='data: {"choices":[{"delta":{"content":"n"}}]}\n\ndata: [DONE]\n\n')
+
+        patch(h)
+        asyncio.run(collect(router.route([{"role": "user", "content": "q"}], "easy", "high")))
+        asyncio.run(collect(router.route([{"role": "user", "content": "q"}], router.NVIDIA_MODELS[0], "high")))
+        self.assertTrue(bodies)
+        self.assertFalse(any("effort" in b and b["effort"] == "high" for b in bodies))  # ignored
+
     def test_direct_codex_model_runs_only_that_model(self):
         seen = {}
 
-        async def fake(messages, models):
+        async def fake(messages, models, effort=""):
             seen["models"] = models
             yield "delta", "x"
 

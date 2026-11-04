@@ -12,6 +12,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["SESSION_SECRET"] = "test-secret"
+os.environ["HARU_DISABLE_LLM"] = "1"  # no Groq calls from tests
 os.environ.setdefault("CRED_FILE", str(Path(tempfile.mkdtemp()) / "creds.json"))
 os.environ["GITHUB_TOKEN"] = "x"
 
@@ -20,6 +21,13 @@ REAL = httpx.AsyncClient
 from fastapi.testclient import TestClient  # noqa: E402
 
 import main  # noqa: E402
+
+
+async def _offline_state(chat_id):
+    return False, ""
+
+
+main._chat_state = _offline_state  # no GitHub lookup in tests
 
 main.memory._mem = {}  # no network: memory index is treated as loaded and empty
 import uploads  # noqa: E402
@@ -105,12 +113,12 @@ class UploadTest(unittest.TestCase):
         up = client().post("/uploads", content=JPG).json()
         seen = {}
 
-        async def spy(messages, mode):
+        async def spy(messages, mode, effort=""):
             seen["m"], seen["mode"] = messages, mode
             yield "model", mode
             yield "delta", "a cat"
 
-        async def fake_save(cid, data):
+        async def fake_save(cid, data, **kw):
             seen["saved"] = data
             return True, {"id": cid, "title": "T"}
 
@@ -133,11 +141,11 @@ class UploadTest(unittest.TestCase):
         up = client().post("/uploads", content=PNG).json()
         seen = {}
 
-        async def spy(messages, mode):
+        async def spy(messages, mode, effort=""):
             seen["m"] = messages
             yield "delta", "x"
 
-        async def fake_save(cid, data):
+        async def fake_save(cid, data, **kw):
             return True, {"id": cid, "title": "T"}
 
         main.memory._mem = {"mem-abc": {"id": "mem-abc", "topic": "Diet", "content": "Vegetarian", "updated": 1}}
@@ -157,11 +165,11 @@ class UploadTest(unittest.TestCase):
     def test_missing_image_notice_and_normal_routing(self):
         seen = {}
 
-        async def spy(messages, mode):
+        async def spy(messages, mode, effort=""):
             seen["mode"] = mode
             yield "delta", "x"
 
-        async def fake_save(cid, data):
+        async def fake_save(cid, data, **kw):
             return True, {"id": cid, "title": "T"}
 
         orig = (main.router.route, main.storage.save_chat)

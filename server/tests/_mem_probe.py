@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-os.environ.update(SESSION_SECRET="probe", GITHUB_TOKEN="x", GROQ_API_KEY="x", NVIDIA_API_KEY="x",
+os.environ.update(HARU_DISABLE_LLM="1", SESSION_SECRET="probe", GITHUB_TOKEN="x", GROQ_API_KEY="x", NVIDIA_API_KEY="x",
                   CRED_FILE=str(Path(tempfile.mkdtemp()) / "c.json"), QUEUE_DIR=tempfile.mkdtemp(),
                   USAGE_FILE=str(Path(tempfile.mkdtemp()) / "u.json"))
 
@@ -21,13 +21,13 @@ big_png = b"\x89PNG\r\n\x1a\n" + os.urandom(uploads.MAX_BYTES - 100)
 answer = "word " * 40000  # ~200 KB answer from a model
 
 
-async def fake_route(messages, mode):
+async def fake_route(messages, mode, effort=""):
     yield "model", "m"
     for i in range(0, len(answer), 400):
         yield "delta", answer[i:i + 400]
 
 
-async def fake_save(cid, data):
+async def fake_save(cid, data, **kw):
     return True, {"id": cid, "title": "t"}
 
 
@@ -35,6 +35,11 @@ async def fake_put(client, path, data, msg):
     return None
 
 
+async def offline(chat_id):
+    return False, ""
+
+
+main._chat_state = offline
 main.router.route, main.storage.save_chat, main.storage.put_bytes = fake_route, fake_save, fake_put
 main.memory._mem = {}
 c = TestClient(main.app)

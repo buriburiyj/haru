@@ -134,8 +134,12 @@ def _chunks(text: str):
         yield text[i:i + CHUNK]
 
 
-async def run(messages: list, models: list):
-    """Async generator of ('notice'|'model'|'delta', value). Raises CodexUnavailable if no model answered."""
+EFFORTS = ("low", "medium", "high")
+
+
+async def run(messages: list, models: list, effort: str = ""):
+    """Async generator of ('notice'|'model'|'delta', value). Raises CodexUnavailable if no model answered.
+    `effort` (low|medium|high) becomes Codex's reasoning effort; empty keeps Codex's default."""
     global _disabled_until
     if time.time() < _disabled_until:
         raise CodexUnavailable("temporarily disabled")
@@ -152,7 +156,10 @@ async def run(messages: list, models: list):
         assert re.fullmatch(r"[0-9a-f]{12}", job)
         started = time.time()
         try:
-            req = json.dumps({"prompt": build_prompt(messages), "models": models}, ensure_ascii=False)
+            payload = {"prompt": build_prompt(messages), "models": models}
+            if effort in EFFORTS:
+                payload["effort"] = effort
+            req = json.dumps(payload, ensure_ascii=False)
             if not await storage.commit_file(f"{JOBS_DIR}/{job}.json", req, f"codex job {job}", f"job-{job}"):
                 raise CodexUnavailable("could not write job")
             async with httpx.AsyncClient(timeout=20) as c:

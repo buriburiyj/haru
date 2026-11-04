@@ -16,9 +16,12 @@ import webauthn
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
+import artifacts
 import codex
 import connector
+import llm
 import memory
+import projects
 import router
 import search
 import usage
@@ -380,6 +383,105 @@ async def github_file(repo: str, path: str, ref: str = ""):
         return _gh_error(e)
 
 
+def _proj_error(e: Exception):
+    if isinstance(e, projects.ProjectError):
+        return JSONResponse({"detail": e.detail}, status_code=e.status)
+    return _store_error(e)
+
+
+@app.get("/projects")
+async def projects_list():
+    try:
+        return {"projects": await projects.list_all()}
+    except Exception as e:
+        return _proj_error(e)
+
+
+@app.post("/projects")
+async def projects_create(request: Request):
+    body = await request.json()
+    try:
+        return await projects.create(body.get("name"), body.get("instructions", ""), body.get("files"))
+    except Exception as e:
+        return _proj_error(e)
+
+
+@app.get("/projects/{pid}")
+async def projects_get(pid: str):
+    try:
+        p = await projects.get(pid)
+    except Exception as e:
+        return _proj_error(e)
+    return p if p else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.put("/projects/{pid}")
+async def projects_update(pid: str, request: Request):
+    body = await request.json()
+    try:
+        p = await projects.update(pid, body.get("name"), body.get("instructions"), body.get("files"))
+    except Exception as e:
+        return _proj_error(e)
+    return p if p else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.post("/projects/{pid}/files")
+async def projects_add_file(pid: str, request: Request):
+    body = await request.json()
+    try:
+        p = await projects.add_file(pid, str(body.get("name", "")), body.get("content"))
+    except Exception as e:
+        return _proj_error(e)
+    return p if p else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.delete("/projects/{pid}/files/{name}")
+async def projects_remove_file(pid: str, name: str):
+    """Call only after the user confirmed in the UI."""
+    try:
+        p = await projects.remove_file(pid, name)
+    except Exception as e:
+        return _proj_error(e)
+    return p if p else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.delete("/projects/{pid}")
+async def projects_delete(pid: str):
+    """Call only after the user confirmed in the UI. The project's chats are kept."""
+    try:
+        ok = await projects.delete(pid)
+    except Exception as e:
+        return _proj_error(e)
+    return {"ok": True} if ok else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.get("/artifacts")
+async def artifacts_list(chat_id: str = ""):
+    try:
+        return {"artifacts": await artifacts.list_all(chat_id)}
+    except Exception as e:
+        return _store_error(e)
+
+
+@app.get("/artifacts/{aid}")
+async def artifacts_get(aid: str):
+    try:
+        a = await artifacts.get(aid)
+    except Exception as e:
+        return _store_error(e)
+    return a if a else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.delete("/artifacts/{aid}")
+async def artifacts_delete(aid: str):
+    """Call only after the user confirmed in the UI."""
+    try:
+        ok = await artifacts.delete(aid)
+    except Exception as e:
+        return _store_error(e)
+    return {"ok": True} if ok else JSONResponse({"detail": "not found"}, status_code=404)
+
+
 @app.get("/usage")
 async def usage_get():
     """Free-tier usage for the settings screen. No billing fields. Times are unix seconds (UTC)."""
@@ -395,6 +497,11 @@ async def models():
     return {"default": "auto", "models": router.models()}
 
 
+async def _chat_state(chat_id: str):
+    """(chat already exists?, project the chat belongs to). One lookup per request; tests replace it."""
+    return await storage.chat_exists(chat_id), await storage.chat_project_id(chat_id)
+
+
 @app.post("/chat")
 async def chat(request: Request):
     body = await request.json()
@@ -407,6 +514,10 @@ async def chat(request: Request):
         mode = "auto"
     web = body.get("web", "auto") if body.get("web", "auto") in ("auto", "on", "off") else "auto"
     temporary = bool(body.get("temporary", False))
+    effort = body.get("effort") if body.get("effort") in codex.EFFORTS else ""  # reasoning effort, Codex only
+    project_id = body.get("project_id") if isinstance(body.get("project_id"), str) else ""
+    if project_id and not projects.valid_id(project_id):
+        project_id = ""
     # Only model-visible fields go to the providers.
     prompt = [{"role": m["role"], "content": m["content"]} for m in messages]
     attach = [(i, img) for i, m in enumerate(messages) for img in m.get("images", [])]
@@ -415,6 +526,7 @@ async def chat(request: Request):
     async def gen():
         nonlocal mode
         parts, model, results, gh_sources = [], None, [], []
+        remembered = False
         last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
         # Photos first: prompt[i] must still line up with messages[i] before system messages are inserted.
         if attach:
@@ -437,12 +549,26 @@ async def chat(request: Request):
             if wanted:
                 try:
                     e = await memory.create(wanted[:60], wanted)
+                    remembered = True
                     yield _sse("notice", f"기억했어요: {e['topic']}")
                 except Exception:
                     yield _sse("notice", "기억을 저장하지 못했어요.")
             mem_msg = await memory.prompt_message()
             if mem_msg:
                 prompt.insert(0, mem_msg)
+        chat_known, stored_pid = False, ""
+        if not temporary:
+            chat_known, stored_pid = await _chat_state(chat_id)
+        pid = project_id or stored_pid  # a chat keeps its project
+        if pid:
+            try:
+                proj = await projects.get(pid)
+            except Exception:
+                proj = None
+            if proj:
+                prompt.insert(0, projects.prompt_message(proj))
+            else:
+                pid = ""  # deleted or unreachable: chat without project context
         gh_plan = None if attach else await connector.plan(last_user)  # photos: no GitHub lookup
         if gh_plan:
             yield _sse("notice", "GitHub에서 확인하는 중이에요.")
@@ -455,7 +581,7 @@ async def chat(request: Request):
             results = await search.search(last_user)
             if results:
                 prompt.insert(0, search.context_message(results))
-        async for kind, text in router.route(prompt, mode):
+        async for kind, text in router.route(prompt, mode, effort):
             if kind == "model":
                 model = text  # internal: reported in the done event only
             elif kind == "delta":
@@ -467,13 +593,29 @@ async def chat(request: Request):
             tail = search.sources_text(results)
             parts.append(tail)
             yield _sse("delta", tail)
-        saved, title, cid = False, None, chat_id
+        saved, title, cid, new_arts = False, None, chat_id, []
         if parts and not temporary:  # nothing to save if no model answered or the chat is temporary
-            full = messages + [{"role": "assistant", "content": "".join(parts), "model": model}]
-            saved, meta = await storage.save_chat(chat_id, {"messages": full})
+            answer = "".join(parts)
+            first_user = next((m["content"] for m in messages if m["role"] == "user"), "")
+
+            async def no_title():
+                return None
+
+            got = await asyncio.gather(
+                llm.make_title(first_user, answer) if not chat_known else no_title(),  # title only after the first answer
+                no_title() if remembered else memory.suggest(last_user, answer),
+                artifacts.save(chat_id, answer),
+                return_exceptions=True)
+            new_title = got[0] if isinstance(got[0], str) else ""
+            if not isinstance(got[1], BaseException) and got[1]:
+                yield _sse("notice", "기억 업데이트됨")
+            if not isinstance(got[2], BaseException):
+                new_arts = [{"id": a["id"], "title": a["title"], "language": a["language"]} for a in got[2][0]]
+            full = messages + [{"role": "assistant", "content": answer, "model": model}]
+            saved, meta = await storage.save_chat(chat_id, {"messages": full}, title=new_title, project_id=pid)
             title, cid = meta["title"], meta["id"]
         yield _sse("done", {"chat_id": cid, "saved": saved, "model": model, "title": title,
-                            "temporary": temporary,
+                            "temporary": temporary, "project_id": pid or None, "artifacts": new_arts,
                             "sources": [{"title": r["title"], "url": r["url"]} for r in results] + gh_sources})
 
     return StreamingResponse(gen(), media_type="text/event-stream",
@@ -486,9 +628,9 @@ def _store_error(e: Exception):
 
 
 @app.get("/chats")
-async def chats(q: str = "", limit: int = 100):
+async def chats(q: str = "", limit: int = 100, project_id: str = ""):
     try:
-        return {"chats": await storage.list_chats(q, max(1, min(limit, 500)))}
+        return {"chats": await storage.list_chats(q, max(1, min(limit, 500)), project_id)}
     except Exception as e:
         return _store_error(e)
 

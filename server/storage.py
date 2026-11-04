@@ -167,8 +167,9 @@ def _preview_from(messages: list) -> str:
     return ""
 
 
-async def save_chat(chat_id: str, data: dict):
+async def save_chat(chat_id: str, data: dict, title: str = "", project_id: str = ""):
     """One commit per answer: the chat file and index.json together.
+    `title` is used only for a new chat (a renamed or earlier title is kept); `project_id` links the chat to a project.
     Returns (saved, meta). On failure the chat is queued locally and retried."""
     safe = _safe_id(chat_id)
     messages = data.get("messages", [])
@@ -178,13 +179,15 @@ async def save_chat(chat_id: str, data: dict):
         await _ensure_index()
     except Exception:
         # Never write an index built from nothing: queue the chat, merge into the real index later.
-        meta = {"id": safe, "title": _title_from(messages), "created": now, "updated": now,
-                "preview": _preview_from(messages)}
+        meta = {"id": safe, "title": title or _title_from(messages), "created": now, "updated": now,
+                "preview": _preview_from(messages), **({"project_id": project_id} if project_id else {})}
         _enqueue(safe, _chat_path(safe), content, meta=meta)
         return False, meta
     old = _index.get(safe, {})
-    meta = {"id": safe, "title": old.get("title") or _title_from(messages),
+    meta = {"id": safe, "title": old.get("title") or title or _title_from(messages),
             "created": old.get("created", now), "updated": now, "preview": _preview_from(messages)}
+    if old.get("project_id") or project_id:
+        meta["project_id"] = old.get("project_id") or project_id
     _index.pop(safe, None)
     _index[safe] = meta
     ok = await _commit(_chat_path(safe), content, safe, f"chat {safe}", meta)
@@ -205,9 +208,29 @@ async def _commit(path: str, content, queue_name: str, msg: str, meta=None) -> b
         return False
 
 
-async def list_chats(q: str = "", limit: int = 100) -> list:
+async def chat_exists(chat_id: str) -> bool:
+    """True if this chat already has an index entry (so its title must not be regenerated)."""
+    try:
+        await _ensure_index()
+    except Exception:
+        return True  # unknown: do not spend an LLM call on a title that may be overwritten
+    return _safe_id(chat_id) in _index
+
+
+async def chat_project_id(chat_id: str) -> str:
+    """Project this chat belongs to ('' if none or unknown)."""
+    try:
+        await _ensure_index()
+    except Exception:
+        return ""
+    return _index.get(_safe_id(chat_id), {}).get("project_id", "")
+
+
+async def list_chats(q: str = "", limit: int = 100, project_id: str = "") -> list:
     await _ensure_index()
     items = _recent_first()
+    if project_id:
+        items = [m for m in items if m.get("project_id") == project_id]
     if q:
         ql = q.lower()
         items = [m for m in items if ql in m["title"].lower() or ql in m.get("preview", "").lower()]

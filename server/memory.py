@@ -138,3 +138,42 @@ async def prompt_message():
     if not lines:
         return None
     return {"role": "system", "content": "What you remember about the user (saved memory; use only when relevant):\n" + "\n".join(lines)}
+
+
+# ---- automatic suggestions ----
+# Cheap gate first: only messages that talk about the user themself cost an LLM call.
+_GATE = re.compile(r"나는|난 |내가|저는|제가|내 |제 |우리 |나의|항상|앞으로|좋아해|싫어해|선호|알레르기|"
+                   r"\bI am\b|\bI'm\b|\bmy\b|\bI (like|love|prefer|hate|use|work|live)\b|\bwe\b", re.IGNORECASE)
+_SENSITIVE = re.compile(r"password|passwd|비밀번호|비번|api[_ -]?key|token|secret|[A-Za-z0-9_\-]{24,}|\d{9,}", re.IGNORECASE)
+SUGGEST_SYSTEM = (
+    "You decide whether the user's message reveals a stable personal fact or preference worth remembering "
+    "long-term (name, job, diet, tools they use, habits, goals, preferences). Do NOT save: one-off requests, "
+    "questions, passwords, keys, payment or ID numbers, health details, or private facts about other people. "
+    "Write topic and content in the same language as the user's message. "
+    "Existing memory topics: {topics}. If a topic already exists, reuse the same topic name to update it. "
+    'Reply with JSON only: {{"remember": false}} or '
+    '{{"remember": true, "topic": "<=40 chars", "content": "one short sentence about the user"}}.')
+
+
+async def suggest(user_text: str, answer: str = ""):
+    """Maybe save one memory from this exchange. Returns the saved entry or None. Never raises."""
+    import llm  # local import: llm -> router -> codex -> storage, avoids a cycle at module load
+    try:
+        if not _GATE.search(user_text or ""):
+            return None
+        topics = [e["topic"] for e in (await list_all())[:50]]
+        out = llm.parse_json(await llm.ask(SUGGEST_SYSTEM.format(topics=json.dumps(topics, ensure_ascii=False)),
+                                           f"User: {user_text[:800]}\nAssistant: {answer[:300]}", max_tokens=300))
+        if not out or out.get("remember") is not True:
+            return None
+        topic, content = " ".join(str(out.get("topic", "")).split())[:MAX_TOPIC], str(out.get("content", "")).strip()[:MAX_CONTENT]
+        if not topic or not content or _SENSITIVE.search(topic + " " + content):
+            return None
+        same = next((e for e in await list_all() if e["topic"].lower() == topic.lower()), None)
+        if same:
+            if same["content"].strip() == content:
+                return None  # nothing new
+            return await update(same["id"], content=content)
+        return await create(topic, content)
+    except Exception:
+        return None

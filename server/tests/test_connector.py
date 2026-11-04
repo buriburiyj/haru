@@ -12,6 +12,7 @@ import httpx
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["SESSION_SECRET"] = "test-secret"
+os.environ["HARU_DISABLE_LLM"] = "1"  # no Groq calls from tests
 os.environ.setdefault("CRED_FILE", str(Path(tempfile.mkdtemp()) / "creds.json"))
 os.environ["GITHUB_TOKEN"] = "x"
 
@@ -21,6 +22,13 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import connector  # noqa: E402
 import main  # noqa: E402
+
+
+async def _offline_state(chat_id):
+    return False, ""
+
+
+main._chat_state = _offline_state  # no GitHub lookup in tests
 
 main.memory._mem = {}
 
@@ -126,11 +134,11 @@ class ConnectorTest(unittest.TestCase):
     def test_chat_uses_github_context_and_reports_sources(self):
         seen = {}
 
-        async def spy(messages, mode):
+        async def spy(messages, mode, effort=""):
             seen["m"] = messages
             yield "delta", "ok"
 
-        async def fake_save(cid, data):
+        async def fake_save(cid, data, **kw):
             return True, {"id": cid, "title": "T"}
 
         orig = (main.router.route, main.storage.save_chat)

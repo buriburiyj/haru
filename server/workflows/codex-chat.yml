@@ -37,10 +37,13 @@ jobs:
           set -u
           f=".agent/jobs/$JOB_ID.json"; out=".agent/jobs/$JOB_ID.out.json"
           prompt=$(jq -r .prompt "$f")
+          effort=$(jq -r '.effort // empty' "$f")
+          [[ "$effort" =~ ^(low|medium|high)$ ]] || effort=""
+          effort_args=(); [ -n "$effort" ] && effort_args=(-c "model_reasoning_effort=\"$effort\"")
           tried='[]'; ok=""
           for m in $(jq -r '.models[]' "$f"); do
             [[ "$m" =~ ^[A-Za-z0-9._-]+$ ]] || continue
-            if timeout 240 codex exec -m "$m" --skip-git-repo-check --sandbox read-only \
+            if timeout 240 codex exec -m "$m" ${effort_args[@]+"${effort_args[@]}"} --skip-git-repo-check --sandbox read-only \
                  -o /tmp/last.txt "$prompt" </dev/null >/tmp/codex.log 2>&1 && [ -s /tmp/last.txt ]; then
               jq -n --arg m "$m" --rawfile t /tmp/last.txt --argjson tried "$tried" \
                 '{ok:true, model:$m, text:$t, tried:$tried}' > "$out"

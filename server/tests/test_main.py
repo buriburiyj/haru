@@ -11,6 +11,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 os.environ["SESSION_SECRET"] = "test-secret"
+os.environ["HARU_DISABLE_LLM"] = "1"  # no Groq calls from tests
 os.environ.pop("SETUP_TOKEN", None)  # a real token in the shell must not change test results
 os.environ["CRED_FILE"] = str(Path(tempfile.mkdtemp()) / "creds.json")
 
@@ -20,6 +21,13 @@ from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import main  # noqa: E402
+
+
+async def _offline_state(chat_id):
+    return False, ""
+
+
+main._chat_state = _offline_state  # no GitHub lookup in tests
 
 main.memory._mem = {}  # no network: memory index is treated as loaded and empty
 
@@ -242,12 +250,12 @@ class ChatTest(unittest.TestCase):
     def _post(self, body, fake_route=None):
         saved = {}
 
-        async def default_route(messages, mode):
+        async def default_route(messages, mode, effort=""):
             yield "model", "m1"
             yield "delta", "hel"
             yield "delta", "lo"
 
-        async def fake_save(chat_id, data):
+        async def fake_save(chat_id, data, **kw):
             saved.update(data)
             return True, {"id": chat_id, "title": "T"}
 
@@ -265,13 +273,14 @@ class ChatTest(unittest.TestCase):
         self.assertIn("event: delta", r.text)
         self.assertNotIn("Switching", r.text)
         done = json.loads(r.text.split("event: done\ndata: ")[1].split("\n")[0])
-        self.assertEqual(done, {"chat_id": "t1", "saved": True, "model": "m1", "title": "T", "temporary": False, "sources": []})
+        self.assertEqual(done, {"chat_id": "t1", "saved": True, "model": "m1", "title": "T", "temporary": False,
+                                "project_id": None, "artifacts": [], "sources": []})
         self.assertEqual(saved["messages"][-1], {"role": "assistant", "content": "hello", "model": "m1"})
 
     def test_search_adds_context_and_sources(self):
         seen = {}
 
-        async def spy(messages, mode):
+        async def spy(messages, mode, effort=""):
             seen["m"] = messages
             yield "model", "m1"
             yield "delta", "It is sunny [1]."
@@ -313,8 +322,22 @@ class ChatTest(unittest.TestCase):
         done = json.loads(r.text.split("event: done\ndata: ")[1].split("\n")[0])
         self.assertEqual((done["saved"], done["temporary"]), (False, True))
 
+    def test_effort_is_validated_and_forwarded(self):
+        seen = []
+
+        async def spy(messages, mode, effort=""):
+            seen.append(effort)
+            yield "delta", "x"
+
+        for given in ("high", "extreme", None):
+            body = {"messages": [{"role": "user", "content": "hi"}]}
+            if given is not None:
+                body["effort"] = given
+            self._post(body, spy)
+        self.assertEqual(seen, ["high", "", ""])
+
     def test_no_answer_is_not_saved(self):
-        async def none_route(messages, mode):
+        async def none_route(messages, mode, effort=""):
             yield "notice", "All models unavailable"
 
         r, saved = self._post({"chat_id": "t2", "messages": [{"role": "user", "content": "hi"}]}, none_route)
@@ -324,7 +347,7 @@ class ChatTest(unittest.TestCase):
     def test_messages_are_sanitized(self):
         seen = {}
 
-        async def spy(messages, mode):
+        async def spy(messages, mode, effort=""):
             seen["m"], seen["mode"] = messages, mode
             yield "delta", "x"
 
@@ -337,7 +360,7 @@ class ChatTest(unittest.TestCase):
         c = authed_client()
         self.assertEqual(c.get("/models").json()["default"], "auto")
 
-        async def fake_list(q, limit):
+        async def fake_list(q, limit, project_id=""):
             return [{"id": "x"}]
 
         async def fake_get(cid):

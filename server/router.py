@@ -133,10 +133,11 @@ async def _stream_openai(client, url, key_name, model, messages):
                 yield delta
 
 
-async def route(messages: list, mode: str = "auto"):
+async def route(messages: list, mode: str = "auto", effort: str = ""):
     """Async generator of (kind, value).
     kind: 'model' (id of the model that is answering), 'delta' (answer text),
-    'notice' (user-facing status, e.g. all models unavailable)."""
+    'notice' (user-facing status, e.g. all models unavailable).
+    `effort` only affects Codex; Groq and NVIDIA ignore it."""
     async with httpx.AsyncClient() as client:
         direct = _provider(mode)
         if direct:
@@ -151,7 +152,7 @@ async def route(messages: list, mode: str = "auto"):
         for prov, model in chain:
             if prov == "codex":
                 try:
-                    async for kind, value in codex.run(messages, model):
+                    async for kind, value in codex.run(messages, model, effort):
                         yield kind, value
                     return
                 except (codex.CodexUnavailable, httpx.HTTPError) as e:
