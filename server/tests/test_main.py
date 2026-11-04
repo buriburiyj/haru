@@ -205,7 +205,7 @@ class CredStoreTest(unittest.TestCase):
             self.assertEqual(list(store), [main.CRED_REMOTE])
             self.assertNotIn("SESSION_SECRET", store[main.CRED_REMOTE])
             main._cred_cache = None
-            Path(os.environ["CRED_FILE"]).unlink()  # simulate a wiped disk
+            main.CRED_FILE.unlink(missing_ok=True)  # simulate a wiped disk
             asyncio.run(main._load_remote_creds())
             self.assertEqual(main._creds(), creds)
         finally:

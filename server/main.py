@@ -17,6 +17,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
 import codex
+import connector
 import memory
 import router
 import search
@@ -348,6 +349,37 @@ async def memory_delete(mid: str):
     return {"ok": True} if ok else JSONResponse({"detail": "not found"}, status_code=404)
 
 
+def _gh_error(e: Exception):
+    if isinstance(e, connector.ConnectorError):
+        return JSONResponse({"detail": e.detail}, status_code=e.status)
+    return _store_error(e)
+
+
+@app.get("/github/repos")
+async def github_repos():
+    """Repos the server token can see (read-only connector)."""
+    try:
+        return {"repos": await connector.repos()}
+    except Exception as e:
+        return _gh_error(e)
+
+
+@app.get("/github/files")
+async def github_files(repo: str, path: str = "", ref: str = ""):
+    try:
+        return {"repo": repo, "path": path, "files": await connector.list_files(repo, path, ref)}
+    except Exception as e:
+        return _gh_error(e)
+
+
+@app.get("/github/file")
+async def github_file(repo: str, path: str, ref: str = ""):
+    try:
+        return await connector.read_file(repo, path, ref)
+    except Exception as e:
+        return _gh_error(e)
+
+
 @app.get("/usage")
 async def usage_get():
     """Free-tier usage for the settings screen. No billing fields. Times are unix seconds (UTC)."""
@@ -382,19 +414,9 @@ async def chat(request: Request):
 
     async def gen():
         nonlocal mode
-        parts, model, results = [], None, []
-        if not temporary:  # temporary chats neither read nor write memory
-            last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-            wanted = memory.extract_request(last_user)
-            if wanted:
-                try:
-                    e = await memory.create(wanted[:60], wanted)
-                    yield _sse("notice", f"기억했어요: {e['topic']}")
-                except Exception:
-                    yield _sse("notice", "기억을 저장하지 못했어요.")
-            mem_msg = await memory.prompt_message()
-            if mem_msg:
-                prompt.insert(0, mem_msg)
+        parts, model, results, gh_sources = [], None, [], []
+        last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+        # Photos first: prompt[i] must still line up with messages[i] before system messages are inserted.
         if attach:
             loaded = {}
             for i, img in attach:
@@ -410,10 +432,27 @@ async def chat(request: Request):
                 yield _sse("notice", "사진을 읽는 중이에요.")
             else:
                 yield _sse("notice", "첨부한 사진을 찾지 못했어요.")
+        if not temporary:  # temporary chats neither read nor write memory
+            wanted = memory.extract_request(last_user)
+            if wanted:
+                try:
+                    e = await memory.create(wanted[:60], wanted)
+                    yield _sse("notice", f"기억했어요: {e['topic']}")
+                except Exception:
+                    yield _sse("notice", "기억을 저장하지 못했어요.")
+            mem_msg = await memory.prompt_message()
+            if mem_msg:
+                prompt.insert(0, mem_msg)
+        gh_plan = None if attach else await connector.plan(last_user)  # photos: no GitHub lookup
+        if gh_plan:
+            yield _sse("notice", "GitHub에서 확인하는 중이에요.")
+            ctx = await connector.context_for(gh_plan)
+            if ctx:
+                prompt.insert(0, ctx[0])
+                gh_sources = ctx[1]
         if search.needs_search(messages, web):
             yield _sse("notice", "웹에서 검색하는 중이에요.")
-            last = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
-            results = await search.search(last)
+            results = await search.search(last_user)
             if results:
                 prompt.insert(0, search.context_message(results))
         async for kind, text in router.route(prompt, mode):
@@ -434,7 +473,8 @@ async def chat(request: Request):
             saved, meta = await storage.save_chat(chat_id, {"messages": full})
             title, cid = meta["title"], meta["id"]
         yield _sse("done", {"chat_id": cid, "saved": saved, "model": model, "title": title,
-                            "temporary": temporary, "sources": [{"title": r["title"], "url": r["url"]} for r in results]})
+                            "temporary": temporary,
+                            "sources": [{"title": r["title"], "url": r["url"]} for r in results] + gh_sources})
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})

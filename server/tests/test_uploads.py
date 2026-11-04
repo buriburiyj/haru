@@ -129,6 +129,31 @@ class UploadTest(unittest.TestCase):
         self.assertEqual(seen["saved"]["messages"][0]["images"], [up["id"]])  # ids saved, never base64
         self.assertNotIn("base64", json.dumps(seen["saved"]))
 
+    def test_image_lands_on_the_right_message_when_memory_is_injected(self):
+        up = client().post("/uploads", content=PNG).json()
+        seen = {}
+
+        async def spy(messages, mode):
+            seen["m"] = messages
+            yield "delta", "x"
+
+        async def fake_save(cid, data):
+            return True, {"id": cid, "title": "T"}
+
+        main.memory._mem = {"mem-abc": {"id": "mem-abc", "topic": "Diet", "content": "Vegetarian", "updated": 1}}
+        orig = (main.router.route, main.storage.save_chat)
+        main.router.route, main.storage.save_chat = spy, fake_save
+        try:
+            client().post("/chat", json={"messages": [
+                {"role": "user", "content": "first"}, {"role": "assistant", "content": "ok"},
+                {"role": "user", "content": "look", "images": [up["id"]]}]})
+        finally:
+            main.router.route, main.storage.save_chat = orig
+            main.memory._mem = {}
+        self.assertEqual(seen["m"][0]["role"], "system")  # memory is still injected
+        self.assertIsInstance(seen["m"][-1]["content"], list)  # the image is on the last user message
+        self.assertEqual(seen["m"][1]["content"], "first")
+
     def test_missing_image_notice_and_normal_routing(self):
         seen = {}
 
