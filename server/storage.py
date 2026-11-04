@@ -100,8 +100,17 @@ def _chat_path(safe: str) -> str:
     return f"{CHATS_DIR}/{safe}.json"
 
 
+_commit_lock = asyncio.Lock()
+
+
 async def _commit_files(client: httpx.AsyncClient, files: dict, msg: str):
-    """One commit for several files via the Git Data API. A value of None deletes the file."""
+    """One commit for several files via the Git Data API. A value of None deletes the file.
+    Serialized, because two commits built on the same head would conflict."""
+    async with _commit_lock:
+        await _commit_files_unlocked(client, files, msg)
+
+
+async def _commit_files_unlocked(client: httpx.AsyncClient, files: dict, msg: str):
     base = f"{API}/repos/{OWNER}/{REPO}"
     h = _headers()
     ref = await client.get(f"{base}/git/ref/heads/{BRANCH}", headers=h)

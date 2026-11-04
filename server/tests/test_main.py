@@ -21,6 +21,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 import main  # noqa: E402
 
+main.memory._mem = {}  # no network: memory index is treated as loaded and empty
+
 
 def b64u(b: bytes) -> str:
     return base64.urlsafe_b64encode(b).rstrip(b"=").decode()

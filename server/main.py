@@ -16,6 +16,7 @@ import webauthn
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
+import memory
 import router
 import search
 import storage
@@ -99,7 +100,7 @@ async def require_session(request: Request, call_next):
 # Added after require_session so CORS wraps it: 401 responses still carry CORS headers.
 app.add_middleware(
     CORSMiddleware, allow_origins=[ORIGIN], allow_credentials=True,
-    allow_methods=["GET", "POST", "DELETE"], allow_headers=["Content-Type", "X-Setup-Token", "X-Challenge-Id", "Authorization"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type", "X-Setup-Token", "X-Challenge-Id", "Authorization"],
 )
 
 
@@ -295,6 +296,56 @@ async def upload_get(upload_id: str):
     return Response(got[0], media_type=got[1], headers={"Cache-Control": "private, max-age=86400"})
 
 
+@app.get("/memory")
+async def memory_list():
+    try:
+        return {"memories": await memory.list_all()}
+    except Exception as e:
+        return _store_error(e)
+
+
+@app.get("/memory/{mid}")
+async def memory_get(mid: str):
+    try:
+        e = await memory.get(mid)
+    except Exception as ex:
+        return _store_error(ex)
+    return e if e else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.post("/memory")
+async def memory_create(request: Request):
+    body = await request.json()
+    try:
+        return await memory.create(body.get("topic"), body.get("content"))
+    except memory.MemoryError_ as e:
+        return JSONResponse({"detail": e.detail}, status_code=e.status)
+    except Exception as e:
+        return _store_error(e)
+
+
+@app.put("/memory/{mid}")
+async def memory_update(mid: str, request: Request):
+    body = await request.json()
+    try:
+        e = await memory.update(mid, body.get("topic"), body.get("content"))
+    except memory.MemoryError_ as ex:
+        return JSONResponse({"detail": ex.detail}, status_code=ex.status)
+    except Exception as ex:
+        return _store_error(ex)
+    return e if e else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+@app.delete("/memory/{mid}")
+async def memory_delete(mid: str):
+    """Call only after the user confirmed in the UI."""
+    try:
+        ok = await memory.delete(mid)
+    except Exception as e:
+        return _store_error(e)
+    return {"ok": True} if ok else JSONResponse({"detail": "not found"}, status_code=404)
+
+
 @app.get("/models")
 async def models():
     return {"default": "auto", "models": router.models()}
@@ -320,6 +371,18 @@ async def chat(request: Request):
     async def gen():
         nonlocal mode
         parts, model, results = [], None, []
+        if not temporary:  # temporary chats neither read nor write memory
+            last_user = next((m["content"] for m in reversed(messages) if m["role"] == "user"), "")
+            wanted = memory.extract_request(last_user)
+            if wanted:
+                try:
+                    e = await memory.create(wanted[:60], wanted)
+                    yield _sse("notice", f"기억했어요: {e['topic']}")
+                except Exception:
+                    yield _sse("notice", "기억을 저장하지 못했어요.")
+            mem_msg = await memory.prompt_message()
+            if mem_msg:
+                prompt.insert(0, mem_msg)
         if attach:
             loaded = {}
             for i, img in attach:
