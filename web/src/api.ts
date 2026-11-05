@@ -399,3 +399,25 @@ export const deleteArtifact = (id: string) => api<{ ok: true }>("DELETE", `/arti
  * `project_id` (string | null) and `artifacts` (ArtifactRef[]). See server/HANDOFF.md.
  */
 export type ChatDoneExtras = { project_id: string | null; artifacts: ArtifactRef[] };
+
+// ---- background tasks ----
+export type PermissionMode = "default" | "acceptEdits" | "plan" | "auto" | "bypassPermissions" | "dontAsk";
+export type Task = { id: string; status: "queued" | "running" | "done" | "failed" | "stopped" };
+export type TaskEvent = { id: number; event: string; data: Record<string, unknown>; time: number };
+/** POST /tasks */
+export const createTask = (content: string, mode: PermissionMode = "default", conversationId = "") =>
+  api<Task>("POST", "/tasks", { content, mode, conversation_id: conversationId });
+/** POST /tasks/{id}/permission */
+export const decideTaskPermission = (id: string, decision: "allow" | "always" | "deny") =>
+  api<{ ok: true }>("POST", `/tasks/${encodeURIComponent(id)}/permission`, { decision });
+/** POST /tasks/{id}/stop */
+export const stopTask = (id: string) => api<{ ok: true }>("POST", `/tasks/${encodeURIComponent(id)}/stop`);
+/** POST /tasks/{id}/message */
+export const messageTask = (id: string, content: string) =>
+  api<{ ok: true }>("POST", `/tasks/${encodeURIComponent(id)}/message`, { content });
+/** GET /tasks/{id}/events returns an SSE stream. */
+export async function taskEvents(id: string, signal?: AbortSignal): Promise<Response> {
+  const r = await fetch(`${API}/tasks/${encodeURIComponent(id)}/events`, { headers: authHeader(), signal });
+  if (!r.ok) throw await httpError(r);
+  return r;
+}

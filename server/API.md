@@ -111,3 +111,10 @@ Optional (defaults): `GROQ_MODEL` (openai/gpt-oss-20b), `GITHUB_OWNER` (buriburi
 ## Codex setup (one time, by the owner)
 1. Copy `server/workflows/codex-chat.yml` to `jun-files/.github/workflows/codex-chat.yml` (secret `CODEX_AUTH_JSON` already exists there).
 2. The `GITHUB_TOKEN` used by the server needs **Actions: Read and write** on jun-files (done; verified live). If it is missing, Codex is skipped for 10 minutes after a failed attempt and NVIDIA answers.
+
+## Background tasks and worker
+- `POST /tasks` `{content, mode, conversation_id}` creates a queued task. Supported permission modes: `default`, `acceptEdits`, `plan`, `auto`, `bypassPermissions`, `dontAsk`.
+- `GET /tasks/{id}/events` streams SSE events until completion.
+- `POST /tasks/{id}/permission` `{decision:"allow"|"always"|"deny"}`, `POST /tasks/{id}/stop`, and `POST /tasks/{id}/message` `{content}` control a task.
+- Workers authenticate with `X-Worker-Token` and `WORKER_TOKEN`: `POST /worker/claim` `{worker_id}`, `POST /worker/heartbeat` `{task_id,worker_id,checkpoint}`, `GET /worker/events?task_id=...`, and `POST /worker/done` `{task_id,result?,error?}`. A worker lease expires after 120 seconds without heartbeat; checkpoints are returned on reassignment.
+- `POST /telegram/webhook` validates `X-Telegram-Bot-Api-Secret-Token` against `TELEGRAM_WEBHOOK_SECRET` and only accepts the configured `TELEGRAM_CHAT_ID`. Configure `HARU_BOT_TOKEN` for notifications; webhook registration is intentionally a separate owner action.

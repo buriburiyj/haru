@@ -46,6 +46,25 @@ class AuthTest(unittest.TestCase):
     def test_health_is_public(self):
         self.assertEqual(TestClient(main.app).get("/health").json(), {"status": "ok"})
 
+    def test_task_worker_auth_and_task_controls(self):
+        import tasks
+        os.environ["WORKER_TOKEN"] = "worker-test-token"
+        try:
+            c = authed_client()
+            r = c.post("/tasks", json={"content": "work", "mode": "auto", "conversation_id": "c1"})
+            self.assertEqual(r.status_code, 200, r.text)
+            task_id = r.json()["id"]
+            worker = TestClient(main.app, base_url="https://testserver")
+            self.assertEqual(worker.post("/worker/claim", json={"worker_id": "w"}).status_code, 401)
+            worker.headers["X-Worker-Token"] = "worker-test-token"
+            claimed = worker.post("/worker/claim", json={"worker_id": "w"}).json()["task"]
+            self.assertEqual(claimed["id"], task_id)
+            self.assertTrue(worker.post("/worker/heartbeat", json={"task_id": task_id, "worker_id": "w", "checkpoint": "abc"}).json()["ok"])
+            self.assertEqual(worker.post("/worker/done", json={"task_id": task_id, "result": "ok"}).status_code, 200)
+            self.assertEqual(c.get(f"/tasks/{task_id}/events").status_code, 200)
+        finally:
+            os.environ.pop("WORKER_TOKEN", None)
+
     def test_chat_requires_session(self):
         self.assertEqual(TestClient(main.app).post("/chat", json={}).status_code, 401)
 

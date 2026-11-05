@@ -1,4 +1,5 @@
 .env
+worker/REPORT.md
 node_modules/
 dist/
 __pycache__/

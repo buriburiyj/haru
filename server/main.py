@@ -27,6 +27,7 @@ import search
 import usage
 import storage
 import uploads
+import tasks as task_queue
 
 log = logging.getLogger("uvicorn.error")
 
@@ -96,7 +97,7 @@ def _open_challenge_id(token: str, purpose: str):
 
 @app.middleware("http")
 async def require_session(request: Request, call_next):
-    if request.method == "OPTIONS" or request.url.path in PUBLIC:
+    if request.method == "OPTIONS" or request.url.path in PUBLIC or request.url.path == "/telegram/webhook" or request.url.path.startswith("/worker/"):
         return await call_next(request)
     if not _session_ok(request):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
@@ -106,7 +107,7 @@ async def require_session(request: Request, call_next):
 # Added after require_session so CORS wraps it: 401 responses still carry CORS headers.
 app.add_middleware(
     CORSMiddleware, allow_origins=[ORIGIN], allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type", "X-Setup-Token", "X-Challenge-Id", "Authorization"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type", "X-Setup-Token", "X-Challenge-Id", "Authorization", "X-Worker-Token"],
 )
 
 
@@ -661,3 +662,126 @@ async def chat_delete(chat_id: str):
     except Exception as e:
         return _store_error(e)
     return {"ok": True} if ok else JSONResponse({"detail": "not found"}, status_code=404)
+
+
+def _worker_ok(request: Request):
+    return task_queue.worker_authorized(request.headers.get("x-worker-token", ""))
+
+
+@app.post("/tasks")
+async def task_create(request: Request):
+    body = await request.json()
+    content = body.get("content")
+    mode = body.get("mode", "default")
+    if not isinstance(content, str) or not content.strip():
+        return JSONResponse({"detail": "content required"}, status_code=400)
+    try:
+        task = await task_queue.create(content, mode, body.get("conversation_id", body.get("chat_id", "")))
+    except ValueError as e:
+        return JSONResponse({"detail": str(e)}, status_code=400)
+    return {"id": task["id"], "status": task["status"]}
+
+
+@app.get("/tasks/{task_id}/events")
+async def task_events(task_id: str):
+    if task_id not in task_queue.TASKS:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    async def stream():
+        cursor = 0
+        while True:
+            events = task_queue.EVENTS.get(task_id, [])
+            while cursor < len(events):
+                item = events[cursor]
+                yield f"id: {item['id']}\nevent: {item['event']}\ndata: {json.dumps(item['data'], ensure_ascii=False)}\n\n"
+                cursor += 1
+            if task_queue.TASKS[task_id]["status"] in ("done", "failed", "stopped"):
+                return
+            await asyncio.sleep(0.5)
+    return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+
+@app.post("/tasks/{task_id}/permission")
+async def task_permission(task_id: str, request: Request):
+    body = await request.json()
+    decision = body.get("decision")
+    if decision not in ("allow", "always", "deny"):
+        return JSONResponse({"detail": "decision must be allow, always, or deny"}, status_code=400)
+    task = task_queue.TASKS.get(task_id)
+    if not task:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    task["permissions"].append(decision)
+    task_queue.add_event(task_id, "permission", {"decision": decision})
+    return {"ok": True}
+
+
+@app.post("/tasks/{task_id}/stop")
+async def task_stop(task_id: str):
+    task = task_queue.TASKS.get(task_id)
+    if not task:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    task.update(status="stopped")
+    task_queue.add_event(task_id, "stopped", {})
+    return {"ok": True}
+
+
+@app.post("/tasks/{task_id}/message")
+async def task_message(task_id: str, request: Request):
+    body = await request.json()
+    task = task_queue.TASKS.get(task_id)
+    if not task:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    task["messages"].append(str(body.get("content", "")))
+    task_queue.add_event(task_id, "message", {"content": str(body.get("content", ""))})
+    return {"ok": True}
+
+
+@app.post("/worker/claim")
+async def worker_claim(request: Request):
+    if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    body = await request.json()
+    return {"task": await task_queue.claim(str(body.get("worker_id", "worker")))}
+
+
+@app.post("/worker/heartbeat")
+async def worker_heartbeat(request: Request):
+    if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    body = await request.json()
+    ok = await task_queue.heartbeat(body.get("task_id"), body.get("worker_id"), body.get("checkpoint"))
+    return {"ok": ok}
+
+
+@app.get("/worker/events")
+async def worker_events(request: Request, task_id: str):
+    if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    task = task_queue.TASKS.get(task_id)
+    if not task: return JSONResponse({"detail": "not found"}, status_code=404)
+    return {"messages": list(task["messages"]), "permissions": list(task["permissions"]), "stopped": task["status"] == "stopped"}
+
+
+@app.post("/worker/done")
+async def worker_done(request: Request):
+    if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    body = await request.json()
+    task = task_queue.TASKS.get(body.get("task_id"))
+    if not task: return JSONResponse({"detail": "not found"}, status_code=404)
+    task.update(status="failed" if body.get("error") else "done")
+    task_queue.add_event(task["id"], task["status"], {"result": body.get("result", ""), "error": body.get("error", "")})
+    return {"ok": True}
+
+
+@app.post("/telegram/webhook")
+async def telegram_webhook(request: Request):
+    secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET", "")
+    if not secret or not hmac.compare_digest(request.headers.get("x-telegram-bot-api-secret-token", ""), secret):
+        return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    body = await request.json()
+    if str(body.get("message", {}).get("chat", {}).get("id", "")) != os.environ.get("TELEGRAM_CHAT_ID", ""):
+        return {"ok": True}
+    callback = body.get("callback_query")
+    if callback:
+        task_id, decision = str(callback.get("data", "")).split(":", 1)
+        task = task_queue.TASKS.get(task_id)
+        if task and decision in ("allow", "always", "deny"):
+            task["permissions"].append(decision)
+            task_queue.add_event(task_id, "permission", {"decision": decision})
+    return {"ok": True}
