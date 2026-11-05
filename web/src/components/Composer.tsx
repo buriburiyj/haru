@@ -4,7 +4,7 @@ import ModeSwitch from "./composer/ModeSwitch";
 import ModelMenu from "./composer/ModelMenu";
 import PlusMenu from "./composer/PlusMenu";
 import type { ComposerExtras } from "./chat/dataTypes";
-import { Button, IconButton } from "./ui";
+import { Button, IconButton, StopIcon } from "./ui";
 
 export default function Composer({
   value,
@@ -24,7 +24,14 @@ export default function Composer({
   attachNotice,
   web,
   onWebChange,
-}: ComposerProps & ComposerExtras) {
+  working,
+  onStop,
+}: ComposerProps &
+  ComposerExtras & {
+    /** the agent is working: typing stays possible (interjection) and the send button becomes ■ 멈춤 while the box is empty */
+    working?: boolean;
+    onStop?: () => void;
+  }) {
   const ta = useRef<HTMLTextAreaElement>(null);
   const [focused, setFocused] = useState(false);
 
@@ -36,7 +43,9 @@ export default function Composer({
   }, [value]);
 
   const uploading = attachments.some((a) => a.status === "uploading");
-  const canSend = !busy && !uploading && (value.trim().length > 0 || attachments.some((a) => a.status === "ready"));
+  const hasContent = value.trim().length > 0 || attachments.some((a) => a.status === "ready");
+  const canSend = !busy && !uploading && hasContent;
+  const showStop = !!working && !!onStop && !hasContent;
 
   return (
     <form
@@ -79,7 +88,7 @@ export default function Composer({
         rows={1}
         aria-label="메시지 입력"
         value={value}
-        placeholder={focused ? "/를 입력하면 Skills가 나옵니다" : "무엇을 도와드릴까요?"}
+        placeholder={working ? "일하는 중에도 입력할 수 있습니다" : focused ? "/를 입력하면 Skills가 나옵니다" : "무엇을 도와드릴까요?"}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         onChange={(e) => onChange(e.target.value)}
@@ -96,11 +105,23 @@ export default function Composer({
         <div className="flex-1" />
         {!hideModeSwitch && <ModeSwitch mode={mode} onChange={onModeChange} />}
         <ModelMenu models={models} model={model} effort={effort} onModelChange={onModelChange} />
-        <Button type="submit" variant="primary" aria-label="보내기" disabled={!canSend} className="w-9 pointer-coarse:w-11 px-0">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-            <path d="M12 19V5M5 12l7-7 7 7" />
-          </svg>
-        </Button>
+        {showStop ? (
+          <Button variant="secondary" aria-label="멈춤" title="멈춤" onClick={onStop} className="w-9 pointer-coarse:w-11 px-0">
+            <StopIcon size={16} />
+          </Button>
+        ) : (
+          <Button
+            type="submit"
+            variant="primary"
+            aria-label={working ? "끼어들기 보내기" : "보내기"}
+            disabled={!canSend}
+            className="w-9 pointer-coarse:w-11 px-0"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M12 19V5M5 12l7-7 7 7" />
+            </svg>
+          </Button>
+        )}
       </div>
     </form>
   );

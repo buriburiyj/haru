@@ -3,6 +3,7 @@
 Last updated: 2026-11-03 (Claude Code, deadline 2026-11-02)
 
 ## 진행 중
+- [창A] 단기목표 화면 완료(서버 없이, 예시 데이터, ?demo=work로 로그인 없이 확인; 빌드·tsc 통과, 눈으로 확인 전): 진행 화면(할 일 체크, 행동 한 줄·펼침, 실패 빨강+이유, 상태 칩, ■ 멈춤, 일하는 중 입력=끼어들기, 체크포인트 되돌리기(확인 창)·'되돌릴 수 없음' 표시, 요약 카드, 폰은 한 줄), 허락 모드 메뉴 6개(전부 허용은 격리된 컴퓨터만), 허락 카드(허락/항상 허락/거절, 삭제·보내기·결제는 항상 허락 없음), 설정 > 허락 목록(지우기는 확인 창), 파일 카드(열기·다운로드·복사·jun-files에서 열기·버전 ‹ 1/3 ›). 코드: components/work/*, settings/PermissionsPanel.tsx. Composer에 working/onStop 추가.
 - [창B] a378ecc: Codex 연결(GitHub Actions), /usage, 429 한 번 재시도 후 다른 모델, 읽기 전용 GitHub 커넥터(/github/*), 사진 업로드(/uploads), 기억 API(/memory), server/API.md 정리.
 - [창A] 2단계 Chat 기본 화면 연결 완료(빌드 통과, tsc 0 오류, 눈으로·실서버 확인 전): 대화 목록·검색(⌘K)·열기·이름 바꾸기·삭제(확인 창 거친 뒤에만 deleteChat), 새 대화는 done의 chatId/title, 답변 아래 모델 이름('자동 · Groq')과 출처 링크, notice는 진행 문구, 모델 메뉴는 getModels(맨 위 자동), 사진 업로드(3MB 안내, 미리보기, ✕), 임시 채팅은 temporary 전송, 설정 기억(목록·수정·삭제 확인)·사용량 페이지, 커넥터 표의 GitHub '연결됨(읽기 전용)'(githubRepos 결과). 훅: useChat(확장), useChatList, useModels, useAttachments. App.tsx는 허용 범위 밖이지만 연결에 필요해서 최소 수정함. 건너뜀: 노력(effort)은 서버가 받지 않아 화면에만 저장, ⌘U 단축키 표시 제거.
 - [창A] 글꼴 변경 완료(빌드 통과, 눈으로 확인 전): 본문·답변·메뉴·버튼 Pretendard 400, 답변 15px/줄 간격 1.6, 큰 제목(첫 화면 인사, 페이지 제목) Source Serif 4 300 + 마루 부리 ExtraLight 1개(400/700 파일 삭제), 설정 글꼴 기본/읽기/시스템(기본값 기본), SPEC '글꼴 확정' 교체. 👍👎 등 이모지 아이콘 6곳(앱 3: 👍 👎 ⚠, 데모 3: ★ ☁ ⎇)을 components/ui/icons.tsx 선 아이콘으로 교체, 좋아요/싫어요는 누르면 채워지고 다시 누르면 취소. 복사·다시 생성도 아이콘으로 바꿈.

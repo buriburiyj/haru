@@ -9,3 +9,4 @@ export { default as Dialog } from "./Dialog";
 export { Menu, MenuItem, MenuDivider, SubMenu } from "./Menu";
 export { cx } from "./cx";
 export { CopyIcon, ThumbUpIcon, ThumbDownIcon, RefreshIcon, WarningIcon, CloudIcon, BranchIcon, StarIcon } from "./icons";
+export { CheckIcon, CrossIcon, MinusIcon, ChevronIcon, UndoIcon, StopIcon, FileIcon, DownloadIcon, ExternalIcon, ShieldIcon, ClockIcon, ComputerIcon } from "./icons";

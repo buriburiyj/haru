@@ -3,6 +3,7 @@ import CustomizePanel from "../customize/CustomizePanel";
 import type { Kind } from "../customize/sample";
 import { Button, Card, IconButton, Input, Tabs, cx } from "../ui";
 import MemoryPanel from "./MemoryPanel";
+import PermissionsPanel from "./PermissionsPanel";
 import UsagePanel from "./UsagePanel";
 import { FONTS, FONT_SIZES, THEMES, getFont, getFontSize, getTheme, setFont, setFontSize, setTheme } from "./appearance";
 
@@ -92,6 +93,11 @@ const PAGES: Page[] = [
     rows: [],
   },
   {
+    id: "permissions",
+    title: "허락 목록",
+    rows: [],
+  },
+  {
     id: "code",
     title: "Code",
     rows: [
@@ -148,7 +154,7 @@ const PAGES: Page[] = [
 ];
 
 const GROUPS: { name: string; ids: string[]; macOnly?: boolean }[] = [
-  { name: "환경설정", ids: ["general", "account", "privacy", "features", "memory", "recap", "focus", "usage", "code"] },
+  { name: "환경설정", ids: ["general", "account", "privacy", "features", "memory", "recap", "focus", "usage", "permissions", "code"] },
   { name: "이 기기", ids: ["system", "developer"], macOnly: true },
   { name: "사용자 지정", ids: ["skills", "connectors", "plugins"] },
 ];
@@ -292,6 +298,7 @@ export default function SettingsDialog({
             <CustomizePanel kind={page.id as Kind} hideTitle />
           )}
           {page.id === "usage" && <UsagePanel />}
+          {page.id === "permissions" && <PermissionsPanel />}
           {page.id !== "skills" && page.id !== "connectors" && page.id !== "plugins" && page.rows.length === 0 && page.empty && (
             <Card className="p-6 text-center text-sm text-muted">{page.empty}</Card>
           )}
