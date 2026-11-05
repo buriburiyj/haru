@@ -5,18 +5,18 @@ import type { PermissionAnswer, PermissionMode, RunState, TaskEvent, TaskPermiss
 // Today the source is fakeSource (timed example data). To go live, pass a source built from the SSE function
 // Codex adds to api.ts (the TaskSource interface in ./types is all it must satisfy). Screens never hold data themselves.
 
-type State = { run: WorkRun; files: WorkFile[]; permission: TaskPermission | null };
+export type TaskState = { run: WorkRun; files: WorkFile[]; permission: TaskPermission | null };
 
-const INITIAL: State = {
+export const INITIAL_TASK_STATE: TaskState = {
   run: { computer: "box", mode: "auto", state: "working", elapsed: 0, todos: [], actions: [] },
   files: [],
   permission: null,
 };
 
-function reduce(s: State, e: TaskEvent): State {
+export function reduceTask(s: TaskState, e: TaskEvent): TaskState {
   switch (e.type) {
     case "reset":
-      return INITIAL;
+      return INITIAL_TASK_STATE;
     case "meta":
       return { ...s, run: { ...s.run, ...(e.computer ? { computer: e.computer } : {}), ...(e.mode ? { mode: e.mode } : {}) } };
     case "state":
@@ -38,7 +38,7 @@ function reduce(s: State, e: TaskEvent): State {
 }
 
 export function useTask(source: TaskSource) {
-  const [state, dispatch] = useReducer(reduce, INITIAL);
+  const [state, dispatch] = useReducer(reduceTask, INITIAL_TASK_STATE);
   const [elapsed, setElapsed] = useState(0);
   const conn = useRef<ReturnType<TaskSource["connect"]> | null>(null);
   const clock = useRef({ base: 0, at: Date.now() });

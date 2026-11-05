@@ -115,7 +115,7 @@ export const UndoIcon = ({ size }: P) => (
 /** Stop (■): a filled rounded square, the one filled icon on purpose. */
 export const StopIcon = ({ size }: P) => (
   <Icon size={size}>
-    <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" />
+    <rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor" />
   </Icon>
 );
 

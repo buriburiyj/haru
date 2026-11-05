@@ -23,8 +23,10 @@ type ItemExtras = {
   toggle?: boolean;
   /** shortcut hint on the right, e.g. "1" or "⌘K" */
   shortcut?: string;
-  /** one-line explanation under the label */
+  /** explanation under the label (one line, cut with … unless hintWrap) */
   hint?: string;
+  /** let the hint wrap onto several lines */
+  hintWrap?: boolean;
   /** opens a sub menu: shows › on the right */
   submenu?: boolean;
 };
@@ -36,6 +38,7 @@ export function MenuItem({
   toggle,
   shortcut,
   hint,
+  hintWrap,
   submenu,
   className,
   type = "button",
@@ -58,7 +61,7 @@ export function MenuItem({
       {icon && <span className="shrink-0 text-muted">{icon}</span>}
       <span className="min-w-0 flex-1">
         <span className="block truncate">{children}</span>
-        {hint && <span className="block truncate text-xs text-muted">{hint}</span>}
+        {hint && <span className={cx("block text-xs text-muted", hintWrap ? "" : "truncate")}>{hint}</span>}
       </span>
       {isToggle && (
         <span

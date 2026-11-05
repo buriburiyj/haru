@@ -57,12 +57,14 @@ const FILES: WorkFile[] = [
   { name: "notes.md", kind: "문서", path: ".agent/work/demo-chat/notes.md", versions: [{ when: "방금", lang: "md", text: "# 메모\n\n- 첫 번째 항목\n- 두 번째 항목\n" }] },
 ];
 
-export function fakeSource(scenario: FakeScenario, computer: Computer = "box"): TaskSource {
+export type FakeOptions = { /** starting mode (default: auto, or quiet for the done example) */ mode?: PermissionMode; /** seconds already worked at the start (default: the example's own) */ elapsedStart?: number };
+
+export function fakeSource(scenario: FakeScenario, computer: Computer = "box", opts: FakeOptions = {}): TaskSource {
   return {
     connect(emit) {
       const timers: number[] = [];
       let live = true;
-      let mode: PermissionMode = scenario === "done" ? "quiet" : "auto";
+      let mode: PermissionMode = opts.mode ?? (scenario === "done" ? "quiet" : "auto");
       let running: WorkAction | null = null;
       const send = (e: TaskEvent) => {
         if (live) emit(e);
@@ -86,7 +88,7 @@ export function fakeSource(scenario: FakeScenario, computer: Computer = "box"): 
         snapshot(240, "failed", [A1, A2, A3_FAILED, { ...A4_RUNNING, status: "failed", reason: "다시 실행한 테스트도 실패했습니다. 3번 시도해 보고 멈춥니다." }], TODOS);
       } else {
         running = A4_RUNNING;
-        snapshot(192, "working", [A1, A2, A3_FAILED, A4_RUNNING, A5_PENDING], TODOS);
+        snapshot(opts.elapsedStart ?? 192, "working", [A1, A2, A3_FAILED, A4_RUNNING, A5_PENDING], TODOS);
         if (scenario === "ask") {
           at(300, { type: "permission", request: { id: "p1", title: "GitHub: jun-lab에 파일 3개 올리기", kind: "normal", detail: "파일 3개: README.md, docs/usage.md, scripts/run.py" } });
         } else {

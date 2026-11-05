@@ -21,7 +21,15 @@ export type Attachment = {
 };
 
 /** Row for the sidebar, chat list page and search. `when` is a relative date. */
-export type ChatRow = { id: string; title: string; when: string; preview: string; updated: number };
+export type ChatRow = {
+  id: string;
+  title: string;
+  when: string;
+  preview: string;
+  updated: number;
+  /** a task or answer is running in this conversation: the sidebar shows a spinning dot */
+  working?: boolean;
+};
 
 /** Props the composer gets in addition to ComposerProps (src/types.ts). */
 export type ComposerExtras = {

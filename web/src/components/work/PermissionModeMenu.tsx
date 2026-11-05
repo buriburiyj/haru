@@ -45,6 +45,7 @@ export default function PermissionModeMenu({
                 key={m}
                 check={m === mode}
                 hint={blocked ? NOT_ISOLATED_HINT : MODE_HINT[m]}
+            hintWrap
                 disabled={blocked}
                 className="disabled:opacity-50"
                 onClick={() => {

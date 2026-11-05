@@ -74,7 +74,16 @@ export default function SidebarMenu({
                 aria-current={c.id === activeId ? "true" : undefined}
                 className={itemCls + " justify-between" + (c.id === activeId ? " bg-surface-2" : "")}
               >
-                <span className="truncate">{c.title}</span>
+                <span className="flex min-w-0 items-center gap-2">
+                  {c.working && (
+                    <span
+                      role="status"
+                      aria-label="일하는 중"
+                      className="size-3 shrink-0 animate-spin rounded-pill border-2 border-accent border-t-transparent"
+                    />
+                  )}
+                  <span className="truncate">{c.title}</span>
+                </span>
                 <span className="shrink-0 text-xs text-muted">{c.when}</span>
               </Button>
             ))}

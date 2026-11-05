@@ -5,7 +5,7 @@ import { cx } from "./cx";
 export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
 const VARIANT: Record<ButtonVariant, string> = {
-  primary: "bg-accent font-semibold text-accent-fg hover:bg-accent-hover", // orange button: weight 600 (white on #DA7756 is only 3.1:1)
+  primary: "bg-accent font-semibold text-accent-fg hover:bg-accent-hover", // orange button: weight 600 (white on the accent is only 3.1:1)
   secondary: "border border-line bg-surface font-medium text-fg hover:bg-surface-2",
   ghost: "font-medium text-fg hover:bg-surface-2",
   danger: "bg-danger font-medium text-danger-fg hover:opacity-90",
