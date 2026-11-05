@@ -3,8 +3,8 @@ import { Button, Card, CopyIcon, DownloadIcon, ExternalIcon, FileIcon } from "..
 import BranchSwitcher from "../chat/BranchSwitcher";
 import { copyText } from "../chat/ActionButton";
 import type { ArtifactData } from "../artifact/types";
-import { formatSize } from "./types";
-import type { WorkFile } from "./types";
+import { formatSize } from "../../work/types";
+import type { WorkFile } from "../../work/types";
 
 /** File card (결과물 저장): top part opens the artifact panel, buttons download / copy / open in jun-files. */
 export default function FileCard({ file, onOpen }: { file: WorkFile; onOpen: (a: ArtifactData) => void }) {
@@ -31,7 +31,7 @@ export default function FileCard({ file, onOpen }: { file: WorkFile; onOpen: (a:
       <button
         type="button"
         onClick={() => onOpen({ title: file.name, lang: version.lang, code: version.text })}
-        className="flex min-w-0 items-center gap-3 rounded-control text-left hover:bg-surface-2"
+        className="flex min-w-0 items-center gap-3 rounded-control text-left pointer-coarse:min-h-11 hover:bg-surface-2"
       >
         <span className="shrink-0 text-muted">
           <FileIcon size={24} />

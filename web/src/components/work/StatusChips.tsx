@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { ClockIcon, ComputerIcon, ShieldIcon } from "../ui";
-import { COMPUTER_LABEL, MODE_LABEL, formatElapsed } from "./types";
-import type { Computer, PermissionMode, RunState } from "./types";
+import { COMPUTER_LABEL, MODE_LABEL, formatElapsed } from "../../work/types";
+import type { Computer, PermissionMode, RunState } from "../../work/types";
 
 const STATE_TEXT: Record<Exclude<RunState, "working">, string> = { done: "끝남", failed: "실패", stopped: "멈춤" };
 

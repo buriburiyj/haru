@@ -8,7 +8,7 @@ const VARIANT: Record<ButtonVariant, string> = {
   primary: "bg-accent text-accent-fg hover:bg-accent-hover",
   secondary: "border border-line bg-surface text-fg hover:bg-surface-2",
   ghost: "text-fg hover:bg-surface-2",
-  danger: "bg-danger text-accent-fg hover:opacity-90",
+  danger: "bg-danger text-danger-fg hover:opacity-90",
 };
 
 /** The one button. Compact with a mouse, 44px on touch screens; rounded-control; accent only for the main action. */

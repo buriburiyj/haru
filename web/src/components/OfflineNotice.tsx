@@ -17,7 +17,7 @@ export default function OfflineNotice() {
   return (
     <div
       role="status"
-      className="fixed inset-x-0 top-0 z-[70] bg-danger px-4 py-2 text-center text-sm text-accent-fg"
+      className="fixed inset-x-0 top-0 z-[70] bg-danger px-4 py-2 text-center text-sm text-danger-fg"
       style={{ paddingTop: "calc(0.5rem + env(safe-area-inset-top))" }}
     >
       인터넷 연결이 없습니다

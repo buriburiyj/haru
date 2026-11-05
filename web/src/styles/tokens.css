@@ -12,12 +12,13 @@
   --haru-bg: #faf8f5;
   --haru-surface: #f4efe6;
   --haru-border: #e8dec9;
-  --haru-muted: #c2a782;
+  --haru-muted: #766142; /* was #c2a782 (2.2:1 on the page background, unreadable); same hue, 5.6:1 */
   --haru-fg: #2c2523;
   --haru-fg-2: #4a3e39;
   --haru-surface-2: color-mix(in srgb, var(--haru-surface) 55%, var(--haru-border));
   --haru-user-bubble: var(--haru-surface);
   --haru-danger: #b3402a;
+  --haru-danger-fg: #ffffff; /* text on a danger-colored button */
   /* fonts: change a font here once and every screen follows */
   --haru-font-ui: "Pretendard Variable", Pretendard, system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
   --haru-font-serif: "Source Serif 4", "MaruBuri", "Pretendard Variable", Georgia, "Apple SD Gothic Neo", serif;
@@ -49,6 +50,7 @@
     --haru-fg-2: #d8cfc2;
     --haru-user-bubble: var(--haru-surface);
     --haru-danger: #e07a64;
+    --haru-danger-fg: #1c1917;
   }
 }
 
@@ -64,6 +66,7 @@
   --haru-fg-2: #d8cfc2;
   --haru-user-bubble: var(--haru-surface);
   --haru-danger: #e07a64;
+  --haru-danger-fg: #1c1917;
 }
 
 /* thin scrollbar (6px) */

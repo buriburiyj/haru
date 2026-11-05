@@ -59,7 +59,7 @@ export default function Sidebar({ chats, activeId, onOpenChat, onDeleteChats, se
     };
   }, [onCloseProp, onNewProp]);
   const tabCls = (on: boolean) =>
-    "flex h-7 w-8 pointer-coarse:min-h-11 items-center justify-center rounded-control " + (on ? "bg-bg text-fg" : "text-muted");
+    "flex h-7 w-8 pointer-coarse:min-h-11 pointer-coarse:min-w-11 items-center justify-center rounded-control " + (on ? "bg-bg text-fg" : "text-muted");
 
   return (
     <>

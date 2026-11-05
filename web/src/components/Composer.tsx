@@ -98,7 +98,7 @@ export default function Composer({
             if (canSend) onSubmit();
           }
         }}
-        className="block w-full resize-none bg-transparent px-1 py-1 text-fg outline-none placeholder:text-muted"
+        className="block w-full resize-none bg-transparent px-1 py-1 pointer-coarse:min-h-11 text-fg outline-none placeholder:text-muted"
       />
       <div className="mt-2 flex items-center gap-2">
         <PlusMenu webSearch={web} onToggleWebSearch={() => onWebChange(!web)} onAttach={onAttach} />

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Chip, Menu, MenuDivider, MenuItem, ShieldIcon } from "../ui";
-import { MODE_HINT, MODE_LABEL, MODE_ORDER, type PermissionMode } from "./types";
+import { MODE_HINT, MODE_LABEL, MODE_ORDER, type PermissionMode } from "../../work/types";
 
 const NOT_ISOLATED_HINT = "격리된 컴퓨터에서만 쓸 수 있습니다. 지금 컴퓨터에서는 사용할 수 없습니다";
 

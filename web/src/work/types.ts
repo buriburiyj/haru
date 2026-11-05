@@ -91,3 +91,42 @@ export function formatSize(bytes: number): string {
 export type FileKind = "문서" | "코드" | "HTML" | "표" | "슬라이드" | "PDF" | "차트";
 export type FileVersion = { text: string; lang: string; when: string };
 export type WorkFile = { name: string; kind: FileKind; path: string; versions: FileVersion[] };
+
+// ---- Task stream (what the progress screen receives). api.ts is NOT imported here. ----
+
+/** A permission request raised while working. Same shape as the permission card needs. */
+export type TaskPermission = {
+  id: string;
+  title: string;
+  kind: "normal" | "delete" | "send" | "pay";
+  detail?: string;
+};
+export type PermissionAnswer = "once" | "always" | "deny";
+
+/** Events a task source pushes, in any order. `action` is an upsert by id (append when new). */
+export type TaskEvent =
+  | { type: "reset" }
+  | { type: "meta"; computer?: Computer; mode?: PermissionMode; /** seconds already worked */ elapsed?: number }
+  | { type: "state"; state: RunState }
+  | { type: "todos"; todos: Todo[] }
+  | { type: "action"; action: WorkAction }
+  | { type: "permission"; request: TaskPermission | null }
+  | { type: "summary"; summary: WorkSummary }
+  | { type: "files"; files: WorkFile[] };
+
+/** What the screen can ask of the running task (all go to the server later). */
+export type TaskConnection = {
+  stop(): void;
+  /** `id` is the action id the screen already shows for this interjection */
+  interject(text: string, id: string): void;
+  answerPermission(requestId: string, answer: PermissionAnswer): void;
+  rewind(actionId: string): void;
+  setMode(mode: PermissionMode): void;
+  close(): void;
+};
+
+/**
+ * A source of task events. Today: fakeSource (timed example data). Later: one made from the SSE function
+ * Codex adds to api.ts. useTask only needs this interface.
+ */
+export type TaskSource = { connect(onEvent: (e: TaskEvent) => void): TaskConnection };

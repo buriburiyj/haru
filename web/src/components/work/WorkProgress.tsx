@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import { Button, Card, CheckIcon, ChevronIcon, CrossIcon, MinusIcon, UndoIcon, cx } from "../ui";
 import ConfirmDialog from "../confirm/ConfirmDialog";
-import type { StepStatus, WorkAction, WorkRun, WorkSummary } from "./types";
+import type { StepStatus, WorkAction, WorkRun, WorkSummary } from "../../work/types";
 
 function Dot() {
   return <span aria-hidden="true" className="inline-block h-2 w-2 shrink-0 animate-pulse rounded-pill bg-accent" />;

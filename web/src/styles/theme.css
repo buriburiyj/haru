@@ -15,4 +15,5 @@
   --color-accent-hover: var(--haru-accent-hover);
   --color-accent-strong: var(--haru-accent-strong);
   --color-fg-2: var(--haru-fg-2);
+  --color-danger-fg: var(--haru-danger-fg);
 }
