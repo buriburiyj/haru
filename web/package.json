@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "icons": "bash scripts/make-icons"
   },
   "dependencies": {
     "@fontsource/jetbrains-mono": "^5.3.0",

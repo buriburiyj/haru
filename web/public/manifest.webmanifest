@@ -8,6 +8,7 @@
   "theme_color": "#da7756",
   "icons": [
     { "src": "/haru/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/haru/icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" }
+    { "src": "/haru/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/haru/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

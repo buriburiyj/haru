@@ -1,6 +1,6 @@
 import logoUrl from "../assets/logo.png";
 
-// Transparent-background logo from web/design/icon_transparent.png (native size ~194px; do not render larger).
+// logo.png is made by `npm run icons` from web/design/icon-source.png (see web/design/ICON.md). Do not edit it by hand.
 export default function Logo({ size = 40 }: { size?: number }) {
-  return <img src={logoUrl} width={size} height={size} alt="Haru" style={{ objectFit: "contain" }} />;
+  return <img src={logoUrl} width={size} height={size} alt="Haru" className="rounded-icon" style={{ objectFit: "contain" }} />;
 }

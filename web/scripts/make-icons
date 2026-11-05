@@ -1,0 +1,33 @@
+#!/bin/bash
+# Makes every app icon from web/design/icon-source.png. Uses only macOS `sips` (no dependencies).
+# Run: cd web && npm run icons
+# Outputs: public/icons/{apple-touch-icon-180,icon-192,icon-512,icon-maskable-512,favicon-32}.png and src/assets/logo.png.
+# Logo.tsx, index.html and manifest.webmanifest only point at these files.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+SRC=design/icon-source.png
+# background color around the artwork in the maskable icon (the artwork is shrunk to 80% so Android can crop it).
+# Set it to the edge color of the new artwork: MASK_BG=RRGGBB npm run icons. It does NOT change tokens.css colors.
+MASK_BG=${MASK_BG:-C77748}
+
+[ -f "$SRC" ] || { echo "missing $SRC"; exit 1; }
+W=$(sips -g pixelWidth "$SRC" | awk '/pixelWidth/{print $2}')
+H=$(sips -g pixelHeight "$SRC" | awk '/pixelHeight/{print $2}')
+[ "$W" = "$H" ] || { echo "icon-source.png must be square (now ${W}x${H})"; exit 1; }
+[ "$W" -ge 512 ] || echo "warning: source is ${W}px, smaller than 512. The big icons will be blurry; use a 1024px square image."
+sips -g hasAlpha "$SRC" | grep -q "yes" && echo "warning: source has transparency. It shows black on iPhone; use a full-bleed square image."
+
+mkdir -p public/icons src/assets
+make() { sips -z "$1" "$1" "$SRC" --out "$2" >/dev/null; echo "wrote $2 (${1}px)"; }
+make 180 public/icons/apple-touch-icon-180.png
+make 192 public/icons/icon-192.png
+make 512 public/icons/icon-512.png
+make 32 public/icons/favicon-32.png
+make 256 src/assets/logo.png
+
+TMP=$(mktemp -t haruicon).png
+sips -z 410 410 "$SRC" --out "$TMP" >/dev/null
+sips --padToHeightWidth 512 512 --padColor "$MASK_BG" "$TMP" --out public/icons/icon-maskable-512.png >/dev/null
+rm -f "$TMP"
+echo "wrote public/icons/icon-maskable-512.png (512px, artwork 80%)"

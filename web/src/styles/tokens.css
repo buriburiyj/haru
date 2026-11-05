@@ -30,6 +30,7 @@
   --haru-radius-card: 1rem; /* cards, popups, composer */
   --haru-radius-bubble: 1.25rem; /* user bubble */
   --haru-radius-pill: 9999px; /* chips, switches */
+  --haru-radius-icon: 22%; /* app logo corners (the source icon is a full-bleed square) */
   --haru-control-h: 2.75rem; /* 44px touch target, built into the ui components */
   --haru-shadow-pop: 0 8px 24px -8px rgba(0, 0, 0, 0.25); /* menus and dialogs only */
   /* answer text: 15px / 1.6 (rem, so the 글꼴 크기 setting scales it) */
