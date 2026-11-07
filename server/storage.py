@@ -4,6 +4,7 @@ import base64
 import json
 import logging
 import os
+import secrets
 import time
 from pathlib import Path
 import httpx
@@ -21,11 +22,14 @@ def _headers():
     }
 
 
-def _enqueue(name: str, path: str, content, meta=None):
+def _enqueue(name: str, path: str, content, meta=None, append_messages=None):
     """Best-effort local retry queue; a read-only disk must never raise."""
     try:
         QUEUE.mkdir(parents=True, exist_ok=True)
-        (QUEUE / f"{name}.json").write_text(json.dumps({"path": path, "content": content, "meta": meta}))
+        item = {"path": path, "content": content, "meta": meta}
+        if append_messages is not None:
+            item["append_messages"] = append_messages
+        (QUEUE / f"{name}.json").write_text(json.dumps(item, ensure_ascii=False))
     except OSError as e:
         logging.getLogger("uvicorn.error").warning("queue write failed: %s", type(e).__name__)
 
@@ -167,27 +171,42 @@ def _preview_from(messages: list) -> str:
     return ""
 
 
-async def save_chat(chat_id: str, data: dict, title: str = "", project_id: str = ""):
+async def save_chat(chat_id: str, data: dict, title: str = "", project_id: str = "",
+                    mode: str = "", task_id: str = ""):
     """One commit per answer: the chat file and index.json together.
     `title` is used only for a new chat (a renamed or earlier title is kept); `project_id` links the chat to a project.
     Returns (saved, meta). On failure the chat is queued locally and retried."""
     safe = _safe_id(chat_id)
     messages = data.get("messages", [])
     now = int(time.time())
-    content = json.dumps({"id": safe, "messages": messages}, ensure_ascii=False, indent=1)
     try:
         await _ensure_index()
     except Exception:
         # Never write an index built from nothing: queue the chat, merge into the real index later.
         meta = {"id": safe, "title": title or _title_from(messages), "created": now, "updated": now,
-                "preview": _preview_from(messages), **({"project_id": project_id} if project_id else {})}
+                "preview": _preview_from(messages) or _title_from(messages),
+                **({"project_id": project_id} if project_id else {}),
+                **({"mode": mode} if mode else {}),
+                **({"task_ids": [task_id]} if task_id else {})}
+        content = json.dumps({"id": safe, "messages": messages, **({"mode": mode} if mode else {})},
+                             ensure_ascii=False, indent=1)
         _enqueue(safe, _chat_path(safe), content, meta=meta)
         return False, meta
     old = _index.get(safe, {})
     meta = {"id": safe, "title": old.get("title") or title or _title_from(messages),
-            "created": old.get("created", now), "updated": now, "preview": _preview_from(messages)}
+            "created": old.get("created", now), "updated": now,
+            "preview": _preview_from(messages) or _title_from(messages)}
     if old.get("project_id") or project_id:
         meta["project_id"] = old.get("project_id") or project_id
+    if old.get("mode") or mode:
+        meta["mode"] = mode or old["mode"]
+    task_ids = list(old.get("task_ids", []))
+    if task_id and task_id not in task_ids:
+        task_ids.append(task_id)
+    if task_ids:
+        meta["task_ids"] = task_ids
+    content = json.dumps({"id": safe, "messages": messages, **({"mode": meta["mode"]} if meta.get("mode") else {})},
+                         ensure_ascii=False, indent=1)
     _index.pop(safe, None)
     _index[safe] = meta
     ok = await _commit(_chat_path(safe), content, safe, f"chat {safe}", meta)
@@ -244,8 +263,23 @@ async def get_chat(chat_id: str):
     if text is None:
         return None
     d = json.loads(text)
-    d["title"] = _index.get(safe, {}).get("title", "")
+    meta = _index.get(safe, {})
+    d["title"] = meta.get("title", "")
+    if meta.get("mode"):
+        d["mode"] = meta["mode"]
+    d["task_ids"] = list(meta.get("task_ids", []))
     return d
+
+
+def queue_chat_append(chat_id: str, messages: list, title: str = "", mode: str = "", task_id: str = ""):
+    """Queue a message delta so retry can append it without replacing an unreadable conversation."""
+    safe = _safe_id(chat_id)
+    now = int(time.time())
+    meta = {"id": safe, "title": title or _title_from(messages), "created": now, "updated": now,
+            "preview": _preview_from(messages) or _title_from(messages),
+            **({"mode": mode} if mode else {}), **({"task_ids": [task_id]} if task_id else {})}
+    name = f"append-{safe}-{now}-{secrets.token_hex(4)}"
+    _enqueue(name, _chat_path(safe), None, meta=meta, append_messages=messages)
 
 
 async def rename_chat(chat_id: str, title: str) -> bool:
@@ -286,6 +320,36 @@ async def flush_queue() -> int:
             try:
                 item = json.loads(f.read_text())
                 path = item["path"]
+                if item.get("append_messages") is not None and path.startswith(f"{CHATS_DIR}/") and path != INDEX_PATH:
+                    await _ensure_index()
+                    cid = Path(path).stem
+                    current_text = await read_file(path)
+                    current = json.loads(current_text) if current_text else {"id": cid, "messages": []}
+                    current.setdefault("messages", []).extend(item["append_messages"])
+                    old = _index.get(cid, {})
+                    queued_meta = item.get("meta") or {}
+                    now = int(time.time())
+                    meta = {"id": cid, "title": old.get("title") or queued_meta.get("title") or _title_from(current["messages"]),
+                            "created": old.get("created", queued_meta.get("created", now)), "updated": now,
+                            "preview": _preview_from(current["messages"]) or queued_meta.get("preview", "")}
+                    if old.get("project_id") or queued_meta.get("project_id"):
+                        meta["project_id"] = old.get("project_id") or queued_meta["project_id"]
+                    if old.get("mode") or queued_meta.get("mode"):
+                        meta["mode"] = queued_meta.get("mode") or old["mode"]
+                        current["mode"] = meta["mode"]
+                    task_ids = list(old.get("task_ids", []))
+                    for task_id in queued_meta.get("task_ids", []):
+                        if task_id not in task_ids:
+                            task_ids.append(task_id)
+                    if task_ids:
+                        meta["task_ids"] = task_ids
+                    _index.pop(cid, None)
+                    _index[cid] = meta
+                    await _commit_files(c, {path: json.dumps(current, ensure_ascii=False, indent=1),
+                                            INDEX_PATH: _index_json()}, f"chat {cid} (retry)")
+                    f.unlink()
+                    done += 1
+                    continue
                 if path.startswith(f"{CHATS_DIR}/") and path != INDEX_PATH:
                     # chat file (or delete): rebuild index.json from the current index at flush time
                     await _ensure_index()

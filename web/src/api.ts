@@ -6,6 +6,9 @@ const API = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://loca
 export type Msg = {
   role: "user" | "assistant";
   content: string;
+  /** Empty assistant message reserved for a live or completed Work task. */
+  kind?: "task";
+  taskId?: string;
   model?: string;
   /** Upload ids from uploadImage() (user messages only; the server reads at most 3 per request). */
   images?: string[];
@@ -49,11 +52,11 @@ export type ChatEvent =
     };
 
 /** Entry of GET /chats (newest first). `created`/`updated` are unix seconds. */
-export type ChatMeta = { id: string; title: string; created: number; updated: number; preview: string; task_ids?: string[] };
+export type ChatMeta = { id: string; title: string; created: number; updated: number; preview: string; mode?: "chat" | "work"; task_ids?: string[] };
 export type ChatListResponse = { chats: ChatMeta[]; warning?: "storage_unavailable" };
 
 /** GET /chats/{id} */
-export type ChatDetail = { id: string; title: string; messages: Msg[]; task_ids?: string[] };
+export type ChatDetail = { id: string; title: string; messages: Msg[]; mode?: "chat" | "work"; task_ids?: string[] };
 
 /** Entry of GET /models. */
 export type ModelInfo = { id: string; label: string; provider: "auto" | "groq" | "codex" | "nvidia" };
@@ -404,7 +407,7 @@ export type ChatDoneExtras = { project_id: string | null; artifacts: ArtifactRef
 
 // ---- background tasks ----
 export type PermissionMode = "always_ask" | "auto_edit" | "plan" | "auto" | "skip" | "allow_all";
-export type Task = { id: string; status: "queued" | "running" | "done" | "failed" | "stopped" };
+export type Task = { id: string; status: "queued" | "running" | "done" | "failed" | "stopped"; chatId?: string };
 export type ActiveTask = Task & {
   content: string;
   mode: PermissionMode;

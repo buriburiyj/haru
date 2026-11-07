@@ -271,6 +271,9 @@ def _sse(event: str, data) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+TASK_ID_RE = re.compile(r"[0-9a-f]{6,64}")
+
+
 def _clean_messages(raw) -> list:
     """Keep only role/content strings and cap the size (server memory stays small)."""
     out, total = [], 0
@@ -286,6 +289,10 @@ def _clean_messages(raw) -> list:
         item = {"role": m["role"], "content": content}
         if isinstance(m.get("model"), str):
             item["model"] = m["model"]
+        # a Work task placeholder (shown as the task's progress screen) must survive the next /chat save
+        if m["role"] == "assistant" and m.get("kind") == "task" and isinstance(m.get("taskId"), str) and TASK_ID_RE.fullmatch(m["taskId"]):
+            item["kind"] = "task"
+            item["taskId"] = m["taskId"]
         if m["role"] == "user" and isinstance(m.get("images"), list):
             ids = [i for i in m["images"] if isinstance(i, str) and uploads.valid_id(i)]
             if ids:
@@ -539,7 +546,8 @@ async def chat(request: Request):
     if project_id and not projects.valid_id(project_id):
         project_id = ""
     # Only model-visible fields go to the providers.
-    prompt = [{"role": m["role"], "content": m["content"]} for m in messages]
+    # a task placeholder has no text; the model gets one short line instead of an empty assistant message
+    prompt = [{"role": m["role"], "content": m["content"] or ("(작업을 실행했습니다. 진행 내용은 별도 화면에 있습니다.)" if m.get("kind") == "task" else "")} for m in messages]
     attach = [(i, img) for i, m in enumerate(messages) for img in m.get("images", [])]
     attach = attach[-uploads.MAX_IMAGES_PER_REQUEST:]
 
@@ -651,7 +659,12 @@ def _store_error(e: Exception):
 async def chats(q: str = "", limit: int = 100, project_id: str = ""):
     try:
         items = await storage.list_chats(q, max(1, min(limit, 500)), project_id)
-        return {"chats": [{**item, "task_ids": _task_ids_for_chat(item.get("id", ""))} for item in items]}
+        chats = []
+        for item in items:
+            chat_id = item.get("id", "")
+            task_ids = list(dict.fromkeys([*item.get("task_ids", []), *_task_ids_for_chat(chat_id)]))
+            chats.append({**item, "task_ids": task_ids})
+        return {"chats": chats}
     except Exception as e:
         status = getattr(getattr(e, "response", None), "status_code", None)
         log.warning("chat list storage unavailable: cause=%s status=%s", type(e).__name__, status)
@@ -673,7 +686,8 @@ async def chat_detail(chat_id: str):
         return _store_error(e)
     if d is None:
         return JSONResponse({"detail": "not found"}, status_code=404)
-    return {**d, "task_ids": _task_ids_for_chat(chat_id)}
+    task_ids = list(dict.fromkeys([*d.get("task_ids", []), *_task_ids_for_chat(chat_id)]))
+    return {**d, "task_ids": task_ids}
 
 
 @app.post("/chats/{chat_id}/rename")
@@ -706,11 +720,31 @@ async def task_create(request: Request):
     mode = body.get("mode", "auto")
     if not isinstance(content, str) or not content.strip():
         return JSONResponse({"detail": "content required"}, status_code=400)
+    conversation_id = str(body.get("conversation_id") or body.get("chat_id") or secrets.token_hex(12))
     try:
-        task = await task_queue.create(content, mode, body.get("conversation_id", body.get("chat_id", "")))
+        task = await task_queue.create(content, mode, conversation_id)
     except ValueError as e:
         return JSONResponse({"detail": str(e)}, status_code=400)
-    return {"id": task["id"], "status": task["status"]}
+    task_messages = [
+        {"role": "user", "content": content},
+        {"role": "assistant", "content": "", "kind": "task", "taskId": task["id"]},
+    ]
+    title = " ".join(content.split())
+    if len(title) > 40:
+        title = title[:40] + "…"
+    try:
+        conversation = await storage.get_chat(conversation_id)
+    except Exception:
+        storage.queue_chat_append(conversation_id, task_messages, title=title, mode="work", task_id=task["id"])
+    else:
+        messages = list((conversation or {}).get("messages", [])) + task_messages
+        try:
+            await storage.save_chat(conversation_id, {"messages": messages}, title=title,
+                                    mode="work", task_id=task["id"])
+        except Exception:
+            storage.queue_chat_append(conversation_id, task_messages, title=title,
+                                      mode="work", task_id=task["id"])
+    return {"id": task["id"], "status": task["status"], "chatId": conversation_id}
 
 
 @app.get("/tasks/{task_id}/events")

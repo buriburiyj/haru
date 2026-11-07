@@ -55,7 +55,8 @@ async def create(content, mode, conversation_id):
                           "computer": None, "started_at": None, "action_id": None}
         EVENTS[task_id] = []
         add_event(task_id, "task", {"id": task_id, "content": content, "mode": mode,
-                                    "conversation_id": conversation_id, "status": "queued"})
+                                    "conversation_id": conversation_id, "chatId": conversation_id,
+                                    "chat_mode": "work", "status": "queued"})
         add_event(task_id, "todos", {"todos": [{"id": "t1", "text": content, "done": False}]})
     return TASKS[task_id]
 

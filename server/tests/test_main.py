@@ -54,6 +54,10 @@ class AuthTest(unittest.TestCase):
     def test_task_worker_auth_and_task_controls(self):
         import tasks
         os.environ["WORKER_TOKEN"] = "worker-test-token"
+        original_get, original_save = main.storage.get_chat, main.storage.save_chat
+        async def empty_chat(chat_id): return None
+        async def save_chat(*args, **kwargs): return True, {}
+        main.storage.get_chat, main.storage.save_chat = empty_chat, save_chat
         try:
             c = authed_client()
             r = c.post("/tasks", json={"content": "work", "mode": "auto", "conversation_id": "c1"})
@@ -71,6 +75,7 @@ class AuthTest(unittest.TestCase):
             self.assertEqual(completed["status"], "done")
             self.assertEqual(completed["events"][-1]["event"], "done")
         finally:
+            main.storage.get_chat, main.storage.save_chat = original_get, original_save
             os.environ.pop("WORKER_TOKEN", None)
 
 
@@ -146,6 +151,68 @@ class AuthTest(unittest.TestCase):
         finally:
             del os.environ["SETUP_TOKEN"]
         self.assertEqual(r.status_code, 401)
+
+    def test_work_task_without_chat_id_creates_work_conversation_and_placeholder(self):
+        original = (main.storage.get_chat, main.storage.save_chat)
+        saved = []
+
+        async def missing(chat_id): return None
+        async def save(chat_id, data, **kwargs):
+            saved.append((chat_id, data, kwargs))
+            return True, {}
+
+        main.storage.get_chat, main.storage.save_chat = missing, save
+        try:
+            response = authed_client().post("/tasks", json={"content": "Summarize this repository README in one sentence", "mode": "auto"})
+        finally:
+            main.storage.get_chat, main.storage.save_chat = original
+        self.assertEqual(response.status_code, 200, response.text)
+        task_id, chat_id = response.json()["id"], response.json()["chatId"]
+        self.assertTrue(chat_id)
+        self.assertEqual(len(saved), 1)
+        saved_chat_id, data, options = saved[0]
+        self.assertEqual(saved_chat_id, chat_id)
+        self.assertEqual([m["role"] for m in data["messages"]], ["user", "assistant"])
+        self.assertEqual(data["messages"][0]["content"], "Summarize this repository README in one sentence")
+        self.assertEqual(data["messages"][1], {"role": "assistant", "content": "", "kind": "task", "taskId": task_id})
+        self.assertEqual(len(options["title"]), 41)
+        self.assertTrue(options["title"].endswith("…"))
+        self.assertEqual(options["mode"], "work")
+        self.assertEqual(options["task_id"], task_id)
+        first = main.task_queue.EVENTS[task_id][0]
+        self.assertEqual(first["data"]["chatId"], chat_id)
+        self.assertEqual(first["data"]["chat_mode"], "work")
+
+    def test_work_task_appends_to_existing_chat_or_queues_delta_on_read_failure(self):
+        original = (main.storage.get_chat, main.storage.save_chat, main.storage.queue_chat_append)
+        saved, queued = [], []
+
+        async def existing(chat_id): return {"id": chat_id, "messages": [{"role": "user", "content": "old"}]}
+        async def save(chat_id, data, **kwargs):
+            saved.append((chat_id, data["messages"], kwargs))
+            return True, {}
+
+        main.storage.get_chat, main.storage.save_chat = existing, save
+        try:
+            response = authed_client().post("/tasks", json={"content": "continue", "mode": "auto", "conversation_id": "chat-existing"})
+        finally:
+            main.storage.get_chat, main.storage.save_chat, main.storage.queue_chat_append = original
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["chatId"], "chat-existing")
+        self.assertEqual([m.get("content") for m in saved[0][1]], ["old", "continue", ""])
+        self.assertEqual(saved[0][2]["mode"], "work")
+
+        async def unavailable(chat_id): raise OSError("storage offline")
+        def queue(chat_id, messages, **kwargs): queued.append((chat_id, messages, kwargs))
+        main.storage.get_chat, main.storage.queue_chat_append = unavailable, queue
+        try:
+            response = authed_client().post("/tasks", json={"content": "queued work", "mode": "auto", "conversation_id": "chat-offline"})
+        finally:
+            main.storage.get_chat, main.storage.save_chat, main.storage.queue_chat_append = original
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(queued[0][0], "chat-offline")
+        self.assertEqual([m["role"] for m in queued[0][1]], ["user", "assistant"])
+        self.assertEqual(queued[0][2]["task_id"], response.json()["id"])
 
 
 class WorkerPolicyTest(unittest.TestCase):

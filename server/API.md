@@ -29,6 +29,8 @@ Request:
 - Project chats: the project's instructions and files are given to the model in every message. If `project_id` is missing but the chat already belongs to a project, that project is used. A deleted project is ignored.
 - Easy questions never start GitHub Actions. Hard questions go to Codex (gpt-6-luna, gpt-5.6-terra, gpt-5.6-luna, tried in one Actions run), then NVIDIA.
 
+- Work placeholders (`{role:"assistant", content:"", kind:"task", taskId}`) in `messages` are kept when the chat is saved again. The model gets one short line ("(작업을 실행했습니다. 진행 내용은 별도 화면에 있습니다.)") instead of an empty assistant message.
+
 Response: `text/event-stream`. Events (shapes unchanged):
 - `delta` data `"text chunk"`; Codex answers arrive in a few big chunks (about 400 chars each) after a wait.
 - `notice` data `"status text"` (Korean, user-facing): search started, reading photo, checking GitHub, Codex preparing (about 30-60 s, then every 15 s while working), Codex unavailable, memory saved, rate limit wait ("요청이 몰려서 잠시 기다린 뒤 다시 시도해요." = one retry after 1-6 s; then "요청이 많아서 다른 모델로 답해요."), all models unavailable. Show as a status line, not as answer text.
@@ -44,8 +46,8 @@ Real Codex timing (measured once on the live server): first notice at 5 s, answe
 If a question names a repo and asks about its files (`jun-files에 뭐 있어?`, `jun-files의 README.md 읽어줘`), the server reads it from GitHub (read only) and gives it to the model. Photos in the same message skip this.
 
 ## Chats
-- `GET /chats?q=&limit=&project_id=` -> `{chats:[{id,title,created,updated,preview,task_ids}]}` newest first; `q` matches title and preview. If the backing repository cannot be reached, it returns `200 {chats:[],warning:"storage_unavailable"}` and logs only the exception class.
-- `GET /chats/{id}` -> `{id,title,messages,task_ids}` (404 if missing). `task_ids` contains tasks linked to this conversation so the client can reopen their history. Messages may hold `images` ids and `model`.
+- `GET /chats?q=&limit=&project_id=` -> `{chats:[{id,title,created,updated,preview,mode,task_ids}]}` newest first; `q` matches title and preview. Work conversations have `mode:"work"`; `task_ids` lets the client reopen their tasks. If the backing repository cannot be reached, it returns `200 {chats:[],warning:"storage_unavailable"}` and logs only the exception class/status.
+- `GET /chats/{id}` -> `{id,title,messages,mode,task_ids}` (404 if missing). Messages may hold `images` ids and `model`; a Work placeholder is an empty assistant message such as `{"role":"assistant","content":"","kind":"task","taskId":"t-1"}`.
 - `POST /chats/{id}/rename` `{title}` -> `{ok:true}`
 - `DELETE /chats/{id}` -> `{ok:true}`. Call only after the user confirmed.
 
@@ -114,14 +116,15 @@ Optional (defaults): `GROQ_MODEL` (openai/gpt-oss-20b), `GITHUB_OWNER` (buriburi
 
 ## Background tasks and worker
 - Development mode is enabled only by `HARU_DEV=1`. It adds the two Vite localhost origins and accepts `Authorization: Bearer <HARU_DEV_TOKEN>` only when the ASGI server address is loopback. With `HARU_DEV` unset, CORS and auth keep the production configuration. `scripts/dev.sh` generates the short-lived token and writes it only to the ignored `web/.env.local` as `VITE_DEV_TOKEN`.
-- `POST /tasks` `{content, mode, conversation_id}` creates a queued task. Wire modes map to the screen modes: `always_ask` (ask), `auto_edit` (auto-edit), `plan`, `auto` (default), `skip` (quiet), `allow_all` (all). Local execution of `allow_all` is denied. Unknown commands are skipped; large deletion, external send/push/deploy, payment, and `.env` reads are blocked in every mode.
+- `POST /tasks` `{content, mode, conversation_id?}` creates a queued Work task and returns `{id,status,chatId}`. If `conversation_id` is omitted, the server creates a conversation titled from the shortened request. It stores the user message followed by a task placeholder and returns the same `chatId` in the first `task` event. Existing conversations receive the same two messages. The pair is saved in one chat/index commit; if storage cannot be read, the message delta is queued for append on retry.
+- Task API `mode` is still the permission mode: `always_ask` (ask), `auto_edit` (auto-edit), `plan`, `auto` (default), `skip` (quiet), `allow_all` (all). Local execution of `allow_all` is denied. Unknown commands are skipped; large deletion, external send/push/deploy, payment, and `.env` reads are blocked in every mode.
 - `GET /tasks?active=true` lists active tasks with `computer`, `started_at`, `elapsed`, and `last_event_id`. `GET /tasks/{id}/events?after=N` replays events with IDs greater than `N`; `Last-Event-ID: N` is also accepted. Event IDs increase per task and reconnecting after a refresh does not replay earlier events.
 - `GET /tasks/{id}` returns task metadata and the full stored event history, including terminal `done`, `failed`, or `stopped` events: `{"id":"t-1","content":"...","conversation_id":"chat-1","status":"done","last_event_id":9,"events":[{"id":1,"event":"task","data":{},"time":1794042000.0}]}`.
 - Event stream uses the names below; every event's JSON `data` has the shown shape. A normal completion is `task`, `todos`, `status`, `action`, `checkpoint`, `action`, `output`, `summary`, `todos`, `done` (optional events are omitted when not applicable).
 
 | Event | Example JSON data |
 |---|---|
-| `task` | `{"id":"t-1","content":"현재 폴더 파일 목록을 보고 README 첫 줄을 요약해줘","mode":"auto","conversation_id":"chat-1","status":"queued"}` |
+| `task` | `{"id":"t-1","content":"현재 폴더 파일 목록을 보고 README 첫 줄을 요약해줘","mode":"auto","conversation_id":"chat-1","chatId":"chat-1","chat_mode":"work","status":"queued"}` |
 | `todos` | `{"todos":[{"id":"t1","text":"파일 목록 확인","done":false},{"id":"t2","text":"README 첫 줄 읽기","done":false},{"id":"t3","text":"한 문장으로 요약","done":false}]}` |
 | `status` | `{"status":"running","worker":"mac","computer":"mac","started_at":1794042000.0,"elapsed":3,"resume_after":0}` |
 | `action` | `{"id":"act-1","label":"파일 목록 확인 및 README 첫 줄 읽기","command":"ls -la && head -n 1 README.md","status":"running","outward":false}` |

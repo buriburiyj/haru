@@ -219,6 +219,35 @@ class StorageTest(unittest.TestCase):
         self.assertEqual(self.gh.index()[0]["id"], "ab")
         self.assertEqual(meta["title"], "hello there")
 
+    def test_work_task_slot_saves_mode_and_task_id_in_one_commit(self):
+        messages = [{"role": "user", "content": "work on README"},
+                    {"role": "assistant", "content": "", "kind": "task", "taskId": "task-1"}]
+        ok, meta = asyncio.run(storage.save_chat("work-1", {"messages": messages}, title="work on README",
+                                                 mode="work", task_id="task-1"))
+        self.assertTrue(ok)
+        self.assertEqual(len(self.gh.commits), 1)
+        self.assertEqual(meta["mode"], "work")
+        self.assertEqual(meta["task_ids"], ["task-1"])
+        chat = asyncio.run(storage.get_chat("work-1"))
+        self.assertEqual(chat["mode"], "work")
+        self.assertEqual(chat["task_ids"], ["task-1"])
+        self.assertEqual(chat["messages"], messages)
+
+    def test_queued_task_slot_appends_to_existing_chat_in_one_retry_commit(self):
+        asyncio.run(storage.save_chat("c1", {"messages": self.msgs()}))
+        self.gh.down = True
+        append = [{"role": "user", "content": "continue in Work"},
+                  {"role": "assistant", "content": "", "kind": "task", "taskId": "task-2"}]
+        storage.queue_chat_append("c1", append, title="continue in Work", mode="work", task_id="task-2")
+        self.gh.down = False
+        prior_commits = len(self.gh.commits)
+        self.assertEqual(asyncio.run(storage.flush_queue()), 1)
+        self.assertEqual(len(self.gh.commits), prior_commits + 1)
+        chat = asyncio.run(storage.get_chat("c1"))
+        self.assertEqual(chat["messages"], self.msgs() + append)
+        self.assertEqual(chat["mode"], "work")
+        self.assertEqual(chat["task_ids"], ["task-2"])
+
     def test_second_answer_keeps_title_and_adds_one_commit(self):
         asyncio.run(storage.save_chat("c1", {"messages": self.msgs()}))
         asyncio.run(storage.rename_chat("c1", "My title"))
