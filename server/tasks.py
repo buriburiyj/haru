@@ -49,6 +49,8 @@ async def create(content, mode, conversation_id):
                           "created": time.time(), "worker": None, "heartbeat": 0,
                           "checkpoint": None, "messages": deque(), "permissions": deque(),
                           "controls": deque(),
+                          "todos": [{"id": "t1", "text": content, "done": False}],
+                          "rewind_only": False,
                           "steps": [], "pending_permission": None, "resume_after": 0,
                           "computer": None, "started_at": None, "action_id": None}
         EVENTS[task_id] = []
@@ -72,7 +74,7 @@ async def claim(worker_id):
                                                     "computer": task["computer"], "started_at": task["started_at"],
                                                     "elapsed": int(now - task["started_at"]),
                                                     "resume_after": task["resume_after"]})
-                return {k: task[k] for k in ("id", "content", "mode", "conversation_id", "checkpoint", "resume_after")}
+                return {k: task[k] for k in ("id", "content", "mode", "conversation_id", "checkpoint", "resume_after", "rewind_only")}
     return None
 
 

@@ -49,6 +49,12 @@ def apply_controls(task, controls, work):
         publish(task["id"], "rewound", {"id": control.get("action_id"), "checkpoint": commit})
 
 
+def apply_messages(task, messages):
+    for message in messages:
+        task["content"] += "\n\n추가 요청: " + message["content"]
+        publish(task["id"], "interjection_applied", {"id": message["id"], "status": "queued_for_next_action"})
+
+
 def safe_command(command):
     try:
         tokens = shlex.split(command)
@@ -123,6 +129,17 @@ def run_task(task):
     existing = exclude.read_text() if exclude.exists() else ""
     if ".env" not in existing:
         exclude.write_text(existing + "\n.env\n.env.*\nnode_modules/\n")
+    initial_state = api("/worker/events?task_id=" + task["id"], method="GET")
+    task["mode"] = initial_state.get("mode", task["mode"])
+    if initial_state.get("stopped"):
+        raise RuntimeError("task stopped")
+    apply_messages(task, initial_state.get("messages", []))
+    if initial_state.get("controls"):
+        apply_controls(task, initial_state["controls"], work)
+    if task.get("rewind_only") or initial_state.get("rewind_only"):
+        if not initial_state.get("controls"):
+            raise RuntimeError("rewind request is missing")
+        return "마지막 체크포인트로 되돌렸습니다."
     entries = [p.name for p in work.iterdir() if p.name not in (".git", ".env") and not p.name.startswith(".env.")]
     if DENIED_PATH.search(task["content"]):
         action_id = secrets.token_hex(8)
@@ -132,6 +149,11 @@ def run_task(task):
     plan = api("/worker/plan", {"task_id": task["id"], "entries": entries})
     command, summary = plan["command"], plan["summary"]
     label = plan.get("label") or ("명령 실행: " + command[:72])
+    task_queue_checkpoint = task.get("checkpoint") or {}
+    if not task_queue_checkpoint or task_queue_checkpoint.get("step", -1) < 0:
+        todos = plan.get("todos") or [task["content"]]
+        publish(task["id"], "todos", {"todos": [{"id": f"t{i + 1}", "text": text, "done": False}
+                                                    for i, text in enumerate(todos)]})
     initial_state = api("/worker/events?task_id=" + task["id"], method="GET")
     task["mode"] = initial_state.get("mode", task["mode"])
     if initial_state.get("stopped"):
@@ -139,6 +161,7 @@ def run_task(task):
     if initial_state.get("controls"):
         apply_controls(task, initial_state["controls"], work)
         return run_task(task)
+    apply_messages(task, initial_state.get("messages", []))
     task_queue_checkpoint = task.get("checkpoint") or {}
     action_id = (task_queue_checkpoint.get("action_id")
                  if task.get("_action_count", 0) == 0 and task_queue_checkpoint.get("command") == command
@@ -151,7 +174,7 @@ def run_task(task):
     task["_action_count"] = task.get("_action_count", 0) + 1
     if task["_action_count"] > 10:
         raise RuntimeError("action limit reached")
-    interjected = False
+    interjected = bool(initial_state.get("messages"))
     if task_queue_checkpoint.get("command") == command and task_queue_checkpoint.get("output"):
         output = task_queue_checkpoint["output"]
     else:
@@ -173,9 +196,8 @@ def run_task(task):
                 process.communicate()
                 apply_controls(task, state["controls"], work)
                 return run_task(task)
-            for message in state.get("messages", []):
-                task["content"] += "\n\n추가 요청: " + message["content"]
-                publish(task["id"], "interjection_applied", {"id": message["id"], "status": "queued_for_next_action"})
+            if state.get("messages"):
+                apply_messages(task, state["messages"])
                 interjected = True
         output, _ = process.communicate()
         output = output[-20000:]

@@ -67,6 +67,9 @@ class AuthTest(unittest.TestCase):
             self.assertTrue(worker.post("/worker/heartbeat", json={"task_id": task_id, "worker_id": "w", "checkpoint": "abc"}).json()["ok"])
             self.assertEqual(worker.post("/worker/done", json={"task_id": task_id, "result": "ok"}).status_code, 200)
             self.assertEqual(c.get(f"/tasks/{task_id}/events").status_code, 200)
+            completed = c.get(f"/tasks/{task_id}").json()
+            self.assertEqual(completed["status"], "done")
+            self.assertEqual(completed["events"][-1]["event"], "done")
         finally:
             os.environ.pop("WORKER_TOKEN", None)
 
@@ -157,6 +160,45 @@ class WorkerPolicyTest(unittest.TestCase):
         self.assertFalse(haru_worker.safe_command("git push origin main"))
         self.assertEqual(haru_worker.command_class("python3 script.py"), "unknown")
 
+    def test_worker_applies_a_requeued_rewind_without_replanning(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            task_id = "rewind-test"
+            work = root / task_id
+            work.mkdir()
+            subprocess.run(["git", "init", "-q"], cwd=work, check=True)
+            marker = work / "state.txt"
+            marker.write_text("checkpoint state\n")
+            subprocess.run(["git", "add", "state.txt"], cwd=work, check=True)
+            subprocess.run(["git", "-c", "user.name=Test", "-c", "user.email=test@localhost",
+                            "commit", "-qm", "checkpoint"], cwd=work, check=True)
+            commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=work, text=True).strip()
+            marker.write_text("later state\n")
+            checkpoint = {"action_id": "act-1", "step": 0, "commit": commit}
+            task = {"id": task_id, "content": "work", "mode": "auto", "checkpoint": checkpoint,
+                    "rewind_only": True}
+            old_root, old_api = haru_worker.ROOT, haru_worker.api
+            events = []
+
+            def fake_api(path, body=None, method="POST"):
+                if path.startswith("/worker/events"):
+                    return {"messages": [], "controls": [{"kind": "rewind", "action_id": "act-1",
+                            "checkpoint": checkpoint}], "rewind_only": True, "mode": "auto", "stopped": False}
+                if path == "/worker/event":
+                    events.append(body)
+                    return {"ok": True}
+                raise AssertionError(path)
+
+            haru_worker.ROOT, haru_worker.api = root, fake_api
+            try:
+                result = haru_worker.run_task(task)
+            finally:
+                haru_worker.ROOT, haru_worker.api = old_root, old_api
+            self.assertEqual(result, "마지막 체크포인트로 되돌렸습니다.")
+            self.assertEqual(marker.read_text(), "checkpoint state\n")
+            self.assertEqual(events[0]["event"], "rewound")
+
     def test_worker_plan_uses_server_router_and_returns_json_action(self):
         import asyncio
         os.environ["WORKER_TOKEN"] = "router-test-token"
@@ -169,15 +211,26 @@ class WorkerPolicyTest(unittest.TestCase):
         async def fake_route(messages, mode, effort=""):
             calls.append((messages, mode))
             yield "model", "test-model"
-            yield "delta", '{"command":"ls -la && head -n 1 README.md","summary":"README first line summary"}'
+            yield "delta", '{"todos":["파일 목록 확인","README 첫 줄 읽기","한 문장으로 요약"],"command":"ls -la && head -n 1 README.md","summary":"README first line summary"}'
 
         main.router.route = fake_route
         try:
             result = client.post("/worker/plan", json={"task_id": task["id"], "entries": ["README.md"]})
             self.assertEqual(result.status_code, 200, result.text)
             self.assertEqual(result.json()["command"], "ls -la && head -n 1 README.md")
+            self.assertEqual(result.json()["todos"], ["파일 목록 확인", "README 첫 줄 읽기", "한 문장으로 요약"])
+            self.assertEqual(len(task["todos"]), 3)
             self.assertEqual(calls[0][1], "auto")
             self.assertIn("README.md", calls[0][0][0]["content"])
+
+            async def no_model(messages, mode, effort=""):
+                if False: yield "delta", ""
+
+            main.router.route = no_model
+            fallback_task = asyncio.run(main.task_queue.create("fallback prompt", "auto", "c2"))
+            unavailable = client.post("/worker/plan", json={"task_id": fallback_task["id"], "entries": []})
+            self.assertEqual(unavailable.status_code, 503)
+            self.assertEqual(fallback_task["todos"], [{"id": "t1", "text": "fallback prompt", "done": False}])
         finally:
             main.router.route = original
             os.environ.pop("WORKER_TOKEN", None)
@@ -198,6 +251,9 @@ class WorkerPolicyTest(unittest.TestCase):
         header_replay = client.get(f"/tasks/{task['id']}/events", headers={"Last-Event-ID": "1"})
         self.assertEqual(header_replay.status_code, 200)
         self.assertIn("id: 2\nevent: todos", header_replay.text)
+        detail = client.get(f"/tasks/{task['id']}")
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual([item["event"] for item in detail.json()["events"]][-1], "stopped")
 
     def test_task_mode_and_rewind_controls(self):
         import asyncio
@@ -208,17 +264,30 @@ class WorkerPolicyTest(unittest.TestCase):
         client = authed_client()
         self.assertEqual(client.post(f"/tasks/{task['id']}/mode", json={"mode": "always_ask"}).json()["mode"], "always_ask")
         self.assertEqual(client.post(f"/tasks/{task['id']}/mode", json={"mode": "allow_all"}).status_code, 403)
+        task["status"] = "done"
         rewind = client.post(f"/tasks/{task['id']}/rewind", json={"action_id": "a1"})
         self.assertEqual(rewind.status_code, 200)
+        self.assertEqual(task["status"], "queued")
+        self.assertTrue(task["rewind_only"])
         previous_worker_token = os.environ.get("WORKER_TOKEN")
         os.environ["WORKER_TOKEN"] = "worker-rewind-test-token"
         worker = TestClient(main.app)
         worker.headers["X-Worker-Token"] = "worker-rewind-test-token"
+        other_statuses = {task_id: other["status"] for task_id, other in main.task_queue.TASKS.items()
+                          if task_id != task["id"]}
+        for task_id in other_statuses:
+            main.task_queue.TASKS[task_id]["status"] = "done"
+        claimed = worker.post("/worker/claim", json={"worker_id": "w"}).json()["task"]
+        for task_id, status in other_statuses.items():
+            main.task_queue.TASKS[task_id]["status"] = status
+        self.assertTrue(claimed["rewind_only"])
         state = worker.get(f"/worker/events?task_id={task['id']}").json()
         if previous_worker_token is None: os.environ.pop("WORKER_TOKEN", None)
         else: os.environ["WORKER_TOKEN"] = previous_worker_token
         self.assertEqual(state["mode"], "always_ask")
+        self.assertTrue(state["rewind_only"])
         self.assertEqual(state["controls"][0]["kind"], "rewind")
+        self.assertEqual([e["event"] for e in main.task_queue.EVENTS[task["id"]] if e["event"] in ("rewind_requested", "rewound")], ["rewind_requested"])
         main.task_queue.add_event(task["id"], "action", {"id": "a2", "outward": True})
         task["checkpoint"] = {"action_id": "a2", "commit": "b" * 40}
         outward = client.post(f"/tasks/{task['id']}/rewind", json={"action_id": "a2"}).json()
@@ -506,12 +575,48 @@ class ChatTest(unittest.TestCase):
         orig = (main.storage.list_chats, main.storage.get_chat)
         main.storage.list_chats, main.storage.get_chat = fake_list, fake_get
         try:
-            self.assertEqual(c.get("/chats").json(), {"chats": [{"id": "x"}]})
+            self.assertEqual(c.get("/chats").json(), {"chats": [{"id": "x", "task_ids": []}]})
             self.assertEqual(c.get("/chats/nope").status_code, 404)
         finally:
             main.storage.list_chats, main.storage.get_chat = orig
         self.assertEqual(TestClient(main.app).get("/chats").status_code, 401)
         self.assertEqual(TestClient(main.app).delete("/chats/x").status_code, 401)
+
+    def test_chat_list_storage_failure_returns_empty_warning_without_error_text(self):
+        c = authed_client()
+        original = main.storage.list_chats
+
+        async def unavailable(*args, **kwargs):
+            raise RuntimeError("Bearer do-not-log-this-secret")
+
+        main.storage.list_chats = unavailable
+        try:
+            with self.assertLogs("uvicorn.error", level="WARNING") as captured:
+                response = c.get("/chats")
+        finally:
+            main.storage.list_chats = original
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"chats": [], "warning": "storage_unavailable"})
+        self.assertNotIn("do-not-log-this-secret", " ".join(captured.output))
+
+    def test_chat_responses_expose_task_ids_for_conversation(self):
+        import asyncio
+        task = asyncio.run(main.task_queue.create("work", "auto", "conversation-1"))
+        original = (main.storage.list_chats, main.storage.get_chat)
+
+        async def fake_list(*args, **kwargs):
+            return [{"id": "conversation-1", "title": "Chat"}]
+
+        async def fake_get(chat_id):
+            return {"id": chat_id, "title": "Chat", "messages": []}
+
+        main.storage.list_chats, main.storage.get_chat = fake_list, fake_get
+        try:
+            c = authed_client()
+            self.assertEqual(c.get("/chats").json()["chats"][0]["task_ids"], [task["id"]])
+            self.assertEqual(c.get("/chats/conversation-1").json()["task_ids"], [task["id"]])
+        finally:
+            main.storage.list_chats, main.storage.get_chat = original
 
 
 if __name__ == "__main__":

@@ -44,8 +44,8 @@ Real Codex timing (measured once on the live server): first notice at 5 s, answe
 If a question names a repo and asks about its files (`jun-files에 뭐 있어?`, `jun-files의 README.md 읽어줘`), the server reads it from GitHub (read only) and gives it to the model. Photos in the same message skip this.
 
 ## Chats
-- `GET /chats?q=&limit=&project_id=` -> `{chats:[{id,title,created,updated,preview}]}` newest first; `q` matches title and preview.
-- `GET /chats/{id}` -> `{id,title,messages}` (404 if missing). Messages may hold `images` ids and `model`.
+- `GET /chats?q=&limit=&project_id=` -> `{chats:[{id,title,created,updated,preview,task_ids}]}` newest first; `q` matches title and preview. If the backing repository cannot be reached, it returns `200 {chats:[],warning:"storage_unavailable"}` and logs only the exception class.
+- `GET /chats/{id}` -> `{id,title,messages,task_ids}` (404 if missing). `task_ids` contains tasks linked to this conversation so the client can reopen their history. Messages may hold `images` ids and `model`.
 - `POST /chats/{id}/rename` `{title}` -> `{ok:true}`
 - `DELETE /chats/{id}` -> `{ok:true}`. Call only after the user confirmed.
 
@@ -116,12 +116,13 @@ Optional (defaults): `GROQ_MODEL` (openai/gpt-oss-20b), `GITHUB_OWNER` (buriburi
 - Development mode is enabled only by `HARU_DEV=1`. It adds the two Vite localhost origins and accepts `Authorization: Bearer <HARU_DEV_TOKEN>` only when the ASGI server address is loopback. With `HARU_DEV` unset, CORS and auth keep the production configuration. `scripts/dev.sh` generates the short-lived token and writes it only to the ignored `web/.env.local` as `VITE_DEV_TOKEN`.
 - `POST /tasks` `{content, mode, conversation_id}` creates a queued task. Wire modes map to the screen modes: `always_ask` (ask), `auto_edit` (auto-edit), `plan`, `auto` (default), `skip` (quiet), `allow_all` (all). Local execution of `allow_all` is denied. Unknown commands are skipped; large deletion, external send/push/deploy, payment, and `.env` reads are blocked in every mode.
 - `GET /tasks?active=true` lists active tasks with `computer`, `started_at`, `elapsed`, and `last_event_id`. `GET /tasks/{id}/events?after=N` replays events with IDs greater than `N`; `Last-Event-ID: N` is also accepted. Event IDs increase per task and reconnecting after a refresh does not replay earlier events.
+- `GET /tasks/{id}` returns task metadata and the full stored event history, including terminal `done`, `failed`, or `stopped` events: `{"id":"t-1","content":"...","conversation_id":"chat-1","status":"done","last_event_id":9,"events":[{"id":1,"event":"task","data":{},"time":1794042000.0}]}`.
 - Event stream uses the names below; every event's JSON `data` has the shown shape. A normal completion is `task`, `todos`, `status`, `action`, `checkpoint`, `action`, `output`, `summary`, `todos`, `done` (optional events are omitted when not applicable).
 
 | Event | Example JSON data |
 |---|---|
 | `task` | `{"id":"t-1","content":"현재 폴더 파일 목록을 보고 README 첫 줄을 요약해줘","mode":"auto","conversation_id":"chat-1","status":"queued"}` |
-| `todos` | `{"todos":[{"id":"t1","text":"README 첫 줄 요약","done":false}]}` |
+| `todos` | `{"todos":[{"id":"t1","text":"파일 목록 확인","done":false},{"id":"t2","text":"README 첫 줄 읽기","done":false},{"id":"t3","text":"한 문장으로 요약","done":false}]}` |
 | `status` | `{"status":"running","worker":"mac","computer":"mac","started_at":1794042000.0,"elapsed":3,"resume_after":0}` |
 | `action` | `{"id":"act-1","label":"파일 목록 확인 및 README 첫 줄 읽기","command":"ls -la && head -n 1 README.md","status":"running","outward":false}` |
 | `checkpoint` | `{"action_id":"act-1","step":0,"command":"ls -la && head -n 1 README.md","output":"README.md\\n# Haru","commit":"abc123"}` |
@@ -142,8 +143,8 @@ Optional (defaults): `GROQ_MODEL` (openai/gpt-oss-20b), `GITHUB_OWNER` (buriburi
 
 - `action.id`는 대응하는 `output.id`, `skipped.id`, `error.id`와 같습니다. `action.label`은 화면에 보이는 이름입니다. `kind`는 서버가 `delete|send|pay|other` 중에서 분류합니다. 외부 전송이 허용된 미래 이벤트는 `action.outward:true`로 표시합니다. 현재 외부 전송은 차단됩니다.
 - `output.is_diff`는 출력에 Git diff 형식이 포함되면 `true`입니다. `summary.files`의 형식은 `{path,change:"added"|"modified"|"deleted"}`이고 `usage`는 `{label,value}[]`입니다. 현재 로컬 워커는 무료 한도 값을 산출하지 않아 빈 배열을 보낼 수 있습니다.
-- `POST /tasks/{id}/rewind` `{action_id?}`는 마지막 worker 체크포인트로 되돌리기를 큐에 넣습니다. worker가 polling 중 적용하고 `rewound`를 보냅니다. 대응 행동에 `outward:true`가 있으면 `{ok:false,can_rewind:false,reason:"외부로 보낸 행동은 되돌릴 수 없습니다"}`를 반환합니다.
+- `POST /tasks/{id}/rewind` `{action_id?}`는 마지막 worker 체크포인트로 되돌리기를 큐에 넣습니다. 완료 상태 task도 `rewind_requested` 후 queued 상태로 바꾸어 worker가 처리하고 `rewound`를 보냅니다. 대응 행동에 `outward:true`가 있으면 `{ok:false,can_rewind:false,reason:"외부로 보낸 행동은 되돌릴 수 없습니다"}`를 반환합니다.
 - `POST /tasks/{id}/mode` `{mode}`는 실행 중 허락 모드를 바꾸고 `mode_changed`를 보냅니다. `allow_all`은 `actions`와 `codespaces` 컴퓨터에서만 허용됩니다.
 - `POST /tasks/{id}/permission` `{decision:"allow"|"always"|"deny"}`, `POST /tasks/{id}/stop`, and `POST /tasks/{id}/message` `{content}` control a task.
-- Workers authenticate with `X-Worker-Token` and `WORKER_TOKEN`: `POST /worker/claim` `{worker_id}`, `POST /worker/plan` `{task_id,entries}`, `POST /worker/heartbeat` `{task_id,worker_id,checkpoint}`, `GET /worker/events?task_id=...` -> `{messages,permission,controls,mode,stopped}`, `POST /worker/permission` `{task_id,action_id,label,command}`, `POST /worker/event` `{task_id,event,data}`, and `POST /worker/done` `{task_id,result?,error?}`. A worker lease expires after 120 seconds without heartbeat; the last checkpoint is returned on reassignment.
+- Workers authenticate with `X-Worker-Token` and `WORKER_TOKEN`: `POST /worker/claim` `{worker_id}`, `POST /worker/plan` `{task_id,entries}` -> `{label,command,summary,todos,model}`, `POST /worker/heartbeat` `{task_id,worker_id,checkpoint}`, `GET /worker/events?task_id=...` -> `{messages,permission,controls,mode,rewind_only,stopped}`, `POST /worker/permission` `{task_id,action_id,label,command}`, `POST /worker/event` `{task_id,event,data}`, and `POST /worker/done` `{task_id,result?,error?}`. The router suggests 3–6 short checklist items; if planning is unavailable, the initial single-prompt checklist remains. A worker lease expires after 120 seconds without heartbeat; the last checkpoint is returned on reassignment.
 - `POST /telegram/webhook` validates `X-Telegram-Bot-Api-Secret-Token` against `TELEGRAM_WEBHOOK_SECRET` and only accepts the configured `TELEGRAM_CHAT_ID`. Configure `HARU_BOT_TOKEN` for notifications; webhook registration is intentionally a separate owner action.

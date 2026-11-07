@@ -49,10 +49,11 @@ export type ChatEvent =
     };
 
 /** Entry of GET /chats (newest first). `created`/`updated` are unix seconds. */
-export type ChatMeta = { id: string; title: string; created: number; updated: number; preview: string };
+export type ChatMeta = { id: string; title: string; created: number; updated: number; preview: string; task_ids?: string[] };
+export type ChatListResponse = { chats: ChatMeta[]; warning?: "storage_unavailable" };
 
 /** GET /chats/{id} */
-export type ChatDetail = { id: string; title: string; messages: Msg[] };
+export type ChatDetail = { id: string; title: string; messages: Msg[]; task_ids?: string[] };
 
 /** Entry of GET /models. */
 export type ModelInfo = { id: string; label: string; provider: "auto" | "groq" | "codex" | "nvidia" };
@@ -265,8 +266,9 @@ async function api<T>(method: string, path: string, body?: unknown): Promise<T> 
 }
 
 /** GET /chats?q= — newest first; `q` matches title and preview. */
-export const listChats = (q = "") =>
-  api<{ chats: ChatMeta[] }>("GET", `/chats${q ? `?q=${encodeURIComponent(q)}` : ""}`).then((d) => d.chats);
+export const getChatList = (q = "") =>
+  api<ChatListResponse>("GET", `/chats${q ? `?q=${encodeURIComponent(q)}` : ""}`);
+export const listChats = (q = "") => getChatList(q).then((d) => d.chats);
 /** GET /chats/{id} — HttpError(404) if missing. */
 export const getChat = (id: string) => api<ChatDetail>("GET", `/chats/${encodeURIComponent(id)}`);
 /** POST /chats/{id}/rename */
@@ -412,11 +414,14 @@ export type ActiveTask = Task & {
   last_event_id: number;
 };
 export type TaskEvent = { id: number; event: string; data: Record<string, unknown>; time: number };
+export type TaskDetail = ActiveTask & { conversation_id: string; events: TaskEvent[] };
 /** POST /tasks */
 export const createTask = (content: string, mode: PermissionMode = "auto", conversationId = "") =>
   api<Task>("POST", "/tasks", { content, mode, conversation_id: conversationId });
 /** GET /tasks?active=true */
 export const listActiveTasks = () => api<{ tasks: ActiveTask[] }>("GET", "/tasks?active=true").then((d) => d.tasks);
+/** GET /tasks/{id}, including the full event history for finished tasks. */
+export const getTask = (id: string) => api<TaskDetail>("GET", `/tasks/${encodeURIComponent(id)}`);
 /** POST /tasks/{id}/permission */
 export const decideTaskPermission = (id: string, decision: "allow" | "always" | "deny") =>
   api<{ ok: true }>("POST", `/tasks/${encodeURIComponent(id)}/permission`, { decision });

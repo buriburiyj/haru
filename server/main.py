@@ -650,9 +650,19 @@ def _store_error(e: Exception):
 @app.get("/chats")
 async def chats(q: str = "", limit: int = 100, project_id: str = ""):
     try:
-        return {"chats": await storage.list_chats(q, max(1, min(limit, 500)), project_id)}
+        items = await storage.list_chats(q, max(1, min(limit, 500)), project_id)
+        return {"chats": [{**item, "task_ids": _task_ids_for_chat(item.get("id", ""))} for item in items]}
     except Exception as e:
-        return _store_error(e)
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        log.warning("chat list storage unavailable: cause=%s status=%s", type(e).__name__, status)
+        return {"chats": [], "warning": "storage_unavailable"}
+
+
+def _task_ids_for_chat(chat_id: str) -> list[str]:
+    if not chat_id:
+        return []
+    return [task["id"] for task in task_queue.TASKS.values()
+            if task.get("conversation_id") == chat_id]
 
 
 @app.get("/chats/{chat_id}")
@@ -661,7 +671,9 @@ async def chat_detail(chat_id: str):
         d = await storage.get_chat(chat_id)
     except Exception as e:
         return _store_error(e)
-    return d if d is not None else JSONResponse({"detail": "not found"}, status_code=404)
+    if d is None:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    return {**d, "task_ids": _task_ids_for_chat(chat_id)}
 
 
 @app.post("/chats/{chat_id}/rename")
@@ -737,24 +749,42 @@ async def task_list(active: bool = True):
     return {"tasks": items}
 
 
+@app.get("/tasks/{task_id}")
+async def task_detail(task_id: str):
+    task = task_queue.TASKS.get(task_id)
+    if not task:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    return {"id": task["id"], "content": task["content"], "mode": task["mode"],
+            "conversation_id": task["conversation_id"], "status": task["status"],
+            "computer": task["computer"], "started_at": task["started_at"],
+            "elapsed": int(time.time() - task["started_at"]) if task["started_at"] else 0,
+            "last_event_id": len(task_queue.EVENTS[task_id]), "events": list(task_queue.EVENTS[task_id])}
+
+
 @app.post("/tasks/{task_id}/rewind")
 async def task_rewind(task_id: str, request: Request):
     task = task_queue.TASKS.get(task_id)
     if not task:
         return JSONResponse({"detail": "not found"}, status_code=404)
-    if task["status"] in ("done", "failed", "stopped"):
+    if task["status"] in ("failed", "stopped"):
         return JSONResponse({"detail": "task is not active"}, status_code=409)
     body = await request.json()
     checkpoint = task.get("checkpoint")
     if not checkpoint or not checkpoint.get("commit"):
         return JSONResponse({"ok": False, "can_rewind": False, "reason": "체크포인트가 없습니다"}, status_code=409)
     action_id = str(body.get("action_id") or checkpoint.get("action_id") or "")
+    if action_id and checkpoint.get("action_id") and action_id != checkpoint["action_id"]:
+        return JSONResponse({"ok": False, "can_rewind": False, "reason": "마지막 체크포인트 행동만 되돌릴 수 있습니다"}, status_code=409)
     action = next((event["data"] for event in reversed(task_queue.EVENTS[task_id])
                    if event["event"] == "action" and event["data"].get("id") == action_id), {})
     if action.get("outward"):
         return {"ok": False, "can_rewind": False, "reason": "외부로 보낸 행동은 되돌릴 수 없습니다"}
     task["controls"].append({"kind": "rewind", "action_id": action_id, "checkpoint": checkpoint})
     task_queue.add_event(task_id, "rewind_requested", {"id": action_id, "checkpoint": checkpoint})
+    if task["status"] == "done":
+        task.update(status="queued", worker=None, heartbeat=0, rewind_only=True)
+        task_queue.add_event(task_id, "status", {"status": "queued", "computer": task["computer"],
+                                                  "started_at": task["started_at"], "elapsed": int(time.time() - task["started_at"]) if task["started_at"] else 0})
     return {"ok": True, "queued": True, "action_id": action_id}
 
 
@@ -829,9 +859,10 @@ async def worker_plan(request: Request):
     body = await request.json()
     task = task_queue.TASKS.get(body.get("task_id"))
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
-    prompt = ("Plan one safe, read-only or workspace-local shell command to fulfill the task. "
+    prompt = ("Create 3 to 6 short checklist todos for the task, then plan one safe, read-only or workspace-local shell command. "
               "Never read secrets or .env files. Never delete, send data externally, push, deploy, or pay. "
-              "Return only JSON with keys label, command, and summary. label must be a short human-readable action name. "
+              "Return only JSON with keys todos, label, command, and summary. todos must be an array of 3 to 6 short strings. "
+              "label must be a short human-readable action name. "
               "The command runs inside the task workspace.\n\n"
               f"Task: {task['content']}\nWorkspace entries: {json.dumps(body.get('entries', []), ensure_ascii=False)}")
     parts, model = [], None
@@ -846,8 +877,15 @@ async def worker_plan(request: Request):
         return JSONResponse({"detail": "model returned an invalid plan"}, status_code=502)
     if not isinstance(plan.get("command"), str) or not isinstance(plan.get("summary"), str):
         return JSONResponse({"detail": "model returned an invalid plan"}, status_code=502)
+    todos = plan.get("todos")
+    if not isinstance(todos, list) or not 3 <= len(todos) <= 6 or any(not isinstance(item, str) or not item.strip() for item in todos):
+        todos = [task["content"]]
+    else:
+        todos = [item.strip()[:120] for item in todos]
+    if not task.get("checkpoint") or task["checkpoint"].get("step", -1) < 0:
+        task["todos"] = [{"id": f"t{i + 1}", "text": item, "done": False} for i, item in enumerate(todos)]
     return {"label": str(plan.get("label", "")), "command": plan["command"],
-            "summary": plan["summary"], "model": model}
+            "summary": plan["summary"], "todos": todos, "model": model}
 
 
 @app.post("/worker/heartbeat")
@@ -867,7 +905,8 @@ async def worker_events(request: Request, task_id: str):
     messages = [task["messages"].popleft() for _ in range(len(task["messages"]))]
     controls = [task["controls"].popleft() for _ in range(len(task["controls"]))]
     return {"messages": messages, "permission": permission, "controls": controls,
-            "mode": task["mode"], "stopped": task["status"] == "stopped"}
+            "mode": task["mode"], "rewind_only": task.get("rewind_only", False),
+            "stopped": task["status"] == "stopped"}
 
 
 @app.post("/worker/permission")
@@ -907,8 +946,8 @@ async def worker_done(request: Request):
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
     if task["status"] == "stopped":
         return {"ok": True, "status": "stopped"}
-    task.update(status="failed" if body.get("error") else "done")
-    todos = [{"id": "t1", "text": task["content"], "done": not bool(body.get("error"))}]
+    task.update(status="failed" if body.get("error") else "done", rewind_only=False)
+    todos = [{**todo, "done": not bool(body.get("error"))} for todo in task.get("todos", [])]
     task_queue.add_event(task["id"], "todos", {"todos": todos})
     task_queue.add_event(task["id"], task["status"], {"result": body.get("result", ""), "error": body.get("error", "")})
     return {"ok": True}
