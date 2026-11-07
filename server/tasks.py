@@ -48,6 +48,7 @@ async def create(content, mode, conversation_id):
                           "conversation_id": conversation_id, "status": "queued",
                           "created": time.time(), "worker": None, "heartbeat": 0,
                           "checkpoint": None, "messages": deque(), "permissions": deque(),
+                          "controls": deque(),
                           "steps": [], "pending_permission": None, "resume_after": 0,
                           "computer": None, "started_at": None, "action_id": None}
         EVENTS[task_id] = []

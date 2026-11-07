@@ -113,7 +113,7 @@ function setToken(t: string) {
 }
 
 function authHeader(): Record<string, string> {
-  const t = getToken();
+  const t = (import.meta.env.VITE_DEV_TOKEN as string | undefined) || getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
@@ -403,10 +403,20 @@ export type ChatDoneExtras = { project_id: string | null; artifacts: ArtifactRef
 // ---- background tasks ----
 export type PermissionMode = "always_ask" | "auto_edit" | "plan" | "auto" | "skip" | "allow_all";
 export type Task = { id: string; status: "queued" | "running" | "done" | "failed" | "stopped" };
+export type ActiveTask = Task & {
+  content: string;
+  mode: PermissionMode;
+  computer: "mac" | "tab" | "actions" | "codespaces" | null;
+  started_at: number | null;
+  elapsed: number;
+  last_event_id: number;
+};
 export type TaskEvent = { id: number; event: string; data: Record<string, unknown>; time: number };
 /** POST /tasks */
 export const createTask = (content: string, mode: PermissionMode = "auto", conversationId = "") =>
   api<Task>("POST", "/tasks", { content, mode, conversation_id: conversationId });
+/** GET /tasks?active=true */
+export const listActiveTasks = () => api<{ tasks: ActiveTask[] }>("GET", "/tasks?active=true").then((d) => d.tasks);
 /** POST /tasks/{id}/permission */
 export const decideTaskPermission = (id: string, decision: "allow" | "always" | "deny") =>
   api<{ ok: true }>("POST", `/tasks/${encodeURIComponent(id)}/permission`, { decision });
@@ -415,9 +425,18 @@ export const stopTask = (id: string) => api<{ ok: true }>("POST", `/tasks/${enco
 /** POST /tasks/{id}/message */
 export const messageTask = (id: string, content: string) =>
   api<{ ok: true }>("POST", `/tasks/${encodeURIComponent(id)}/message`, { content });
+/** POST /tasks/{id}/rewind */
+export const rewindTask = (id: string, actionId?: string) =>
+  api<{ ok: boolean; queued?: boolean; can_rewind?: boolean; reason?: string }>("POST", `/tasks/${encodeURIComponent(id)}/rewind`, { action_id: actionId });
+/** POST /tasks/{id}/mode */
+export const setTaskMode = (id: string, mode: PermissionMode) =>
+  api<{ ok: true; mode: PermissionMode }>("POST", `/tasks/${encodeURIComponent(id)}/mode`, { mode });
 /** GET /tasks/{id}/events returns an SSE stream. */
-export async function taskEvents(id: string, signal?: AbortSignal): Promise<Response> {
-  const r = await fetch(`${API}/tasks/${encodeURIComponent(id)}/events`, { headers: authHeader(), signal });
+export async function taskEvents(id: string, afterOrSignal?: number | AbortSignal, signal?: AbortSignal): Promise<Response> {
+  const after = typeof afterOrSignal === "number" ? afterOrSignal : undefined;
+  const abortSignal = typeof afterOrSignal === "number" ? signal : afterOrSignal;
+  const query = after === undefined ? "" : `?after=${encodeURIComponent(after)}`;
+  const r = await fetch(`${API}/tasks/${encodeURIComponent(id)}/events${query}`, { headers: authHeader(), signal: abortSignal });
   if (!r.ok) throw await httpError(r);
   return r;
 }

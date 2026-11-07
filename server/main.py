@@ -71,6 +71,24 @@ def _session_ok(request: Request) -> bool:
     return _valid(_bearer(request))
 
 
+def _loopback_bind(request: Request) -> bool:
+    server = request.scope.get("server") or (None, None)
+    return server[0] in ("127.0.0.1", "::1")
+
+
+def _dev_token_ok(request: Request) -> bool:
+    expected = os.environ.get("HARU_DEV_TOKEN", "")
+    return (os.environ.get("HARU_DEV") == "1" and _loopback_bind(request) and bool(expected)
+            and hmac.compare_digest(_bearer(request), expected))
+
+
+def _cors_origins() -> list[str]:
+    origins = [ORIGIN]
+    if os.environ.get("HARU_DEV") == "1":
+        origins.extend(["http://localhost:5173", "http://127.0.0.1:5173"])
+    return origins
+
+
 def _new_session() -> str:
     return _sign(int(time.time()) + SESSION_TTL)
 
@@ -100,14 +118,14 @@ def _open_challenge_id(token: str, purpose: str):
 async def require_session(request: Request, call_next):
     if request.method == "OPTIONS" or request.url.path in PUBLIC or request.url.path == "/telegram/webhook" or request.url.path.startswith("/worker/"):
         return await call_next(request)
-    if not _session_ok(request):
+    if not (_session_ok(request) or _dev_token_ok(request)):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     return await call_next(request)
 
 
 # Added after require_session so CORS wraps it: 401 responses still carry CORS headers.
 app.add_middleware(
-    CORSMiddleware, allow_origins=[ORIGIN], allow_credentials=True,
+    CORSMiddleware, allow_origins=_cors_origins(), allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type", "X-Setup-Token", "X-Challenge-Id", "Authorization", "X-Worker-Token", "Last-Event-ID"],
 )
 
@@ -719,6 +737,45 @@ async def task_list(active: bool = True):
     return {"tasks": items}
 
 
+@app.post("/tasks/{task_id}/rewind")
+async def task_rewind(task_id: str, request: Request):
+    task = task_queue.TASKS.get(task_id)
+    if not task:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    if task["status"] in ("done", "failed", "stopped"):
+        return JSONResponse({"detail": "task is not active"}, status_code=409)
+    body = await request.json()
+    checkpoint = task.get("checkpoint")
+    if not checkpoint or not checkpoint.get("commit"):
+        return JSONResponse({"ok": False, "can_rewind": False, "reason": "체크포인트가 없습니다"}, status_code=409)
+    action_id = str(body.get("action_id") or checkpoint.get("action_id") or "")
+    action = next((event["data"] for event in reversed(task_queue.EVENTS[task_id])
+                   if event["event"] == "action" and event["data"].get("id") == action_id), {})
+    if action.get("outward"):
+        return {"ok": False, "can_rewind": False, "reason": "외부로 보낸 행동은 되돌릴 수 없습니다"}
+    task["controls"].append({"kind": "rewind", "action_id": action_id, "checkpoint": checkpoint})
+    task_queue.add_event(task_id, "rewind_requested", {"id": action_id, "checkpoint": checkpoint})
+    return {"ok": True, "queued": True, "action_id": action_id}
+
+
+@app.post("/tasks/{task_id}/mode")
+async def task_mode(task_id: str, request: Request):
+    task = task_queue.TASKS.get(task_id)
+    if not task:
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    if task["status"] in ("done", "failed", "stopped"):
+        return JSONResponse({"detail": "task is not active"}, status_code=409)
+    body = await request.json()
+    mode = body.get("mode")
+    if not isinstance(mode, str) or mode not in task_queue.PERMISSION_MODES:
+        return JSONResponse({"detail": "invalid mode"}, status_code=400)
+    if mode == "allow_all" and task.get("computer") not in ("actions", "codespaces"):
+        return JSONResponse({"detail": "allow_all is unavailable on this computer"}, status_code=403)
+    task["mode"] = mode
+    task_queue.add_event(task_id, "mode_changed", {"mode": mode})
+    return {"ok": True, "mode": mode}
+
+
 @app.post("/tasks/{task_id}/permission")
 async def task_permission(task_id: str, request: Request):
     body = await request.json()
@@ -808,7 +865,9 @@ async def worker_events(request: Request, task_id: str):
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
     permission = task["permissions"].popleft() if task["permissions"] else None
     messages = [task["messages"].popleft() for _ in range(len(task["messages"]))]
-    return {"messages": messages, "permission": permission, "stopped": task["status"] == "stopped"}
+    controls = [task["controls"].popleft() for _ in range(len(task["controls"]))]
+    return {"messages": messages, "permission": permission, "controls": controls,
+            "mode": task["mode"], "stopped": task["status"] == "stopped"}
 
 
 @app.post("/worker/permission")

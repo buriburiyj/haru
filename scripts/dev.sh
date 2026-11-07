@@ -13,11 +13,22 @@ set +x
 set -a
 . "$ENV_FILE" >/dev/null 2>&1
 set +a
+if python3 -c 'import socket,sys; s=socket.socket(); s.settimeout(.2); sys.exit(0 if s.connect_ex(("127.0.0.1",8000)) == 0 else 1)' ; then
+  echo "Port 8000 is already in use; stop the existing local server first" >&2
+  exit 1
+fi
+
 export WORKER_TOKEN="${WORKER_TOKEN:-$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')}"
+export HARU_DEV=1
+export HARU_DEV_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
 export HARU_SERVER_URL="http://127.0.0.1:8000"
 export HARU_SOURCE_DIR="${HARU_SOURCE_DIR:-$ROOT_DIR}"
 export HARU_WORK_DIR="${HARU_WORK_DIR:-$HOME/haru-work}"
 export WORKER_ID="mac"
+
+# Vite reads this file at startup. It contains only the short-lived local dev token.
+umask 077
+printf 'VITE_DEV_TOKEN=%s\n' "$HARU_DEV_TOKEN" > "$ROOT_DIR/web/.env.local"
 
 server_pid=""
 worker_pid=""
@@ -33,14 +44,14 @@ trap cleanup EXIT INT TERM
 
 (
   cd "$ROOT_DIR/server"
-  uv --cache-dir "${UV_CACHE_DIR:-/tmp/haru-uv}" run --with-requirements requirements.txt \
+  exec uv --cache-dir "${UV_CACHE_DIR:-/tmp/haru-uv}" run --with-requirements requirements.txt \
     uvicorn main:app --host 127.0.0.1 --port 8000 --no-access-log --log-level warning
 ) >/dev/null 2>&1 &
 server_pid=$!
 
 ready=0
 for _ in {1..80}; do
-  if python3 -c 'import urllib.request; urllib.request.urlopen("http://127.0.0.1:8000/health", timeout=1)' >/dev/null 2>&1; then
+  if python3 -c 'import os,urllib.request; r=urllib.request.Request("http://127.0.0.1:8000/auth/me",headers={"Authorization":"Bearer "+os.environ["HARU_DEV_TOKEN"]}); urllib.request.urlopen(r,timeout=1)' >/dev/null 2>&1; then
     ready=1
     break
   fi
@@ -55,7 +66,7 @@ if [[ "$ready" != 1 ]]; then
 fi
 
 start_worker() {
-  uv --cache-dir "${UV_CACHE_DIR:-/tmp/haru-uv}" run --with-requirements "$ROOT_DIR/server/requirements.txt" \
+  exec uv --cache-dir "${UV_CACHE_DIR:-/tmp/haru-uv}" run --with-requirements "$ROOT_DIR/server/requirements.txt" \
     python "$ROOT_DIR/worker/haru_worker.py" >/dev/null 2>&1 &
   worker_pid=$!
 }

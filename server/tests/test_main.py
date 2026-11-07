@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "worker"))
 os.environ["SESSION_SECRET"] = "test-secret"
 os.environ["HARU_DISABLE_LLM"] = "1"  # no Groq calls from tests
+os.environ.pop("HARU_DEV", None)
+os.environ.pop("HARU_DEV_TOKEN", None)
 os.environ.pop("SETUP_TOKEN", None)  # a real token in the shell must not change test results
 os.environ["CRED_FILE"] = str(Path(tempfile.mkdtemp()) / "creds.json")
 os.environ.setdefault("WORKER_TOKEN", "worker-tests-only")
@@ -86,6 +88,37 @@ class AuthTest(unittest.TestCase):
             "Origin": o, "Access-Control-Request-Method": "POST",
             "Access-Control-Request-Headers": "content-type,x-setup-token"})
         self.assertEqual(p.status_code, 200)
+
+    def test_dev_cors_and_token_are_opt_in_and_loopback_only(self):
+        self.assertEqual(main._cors_origins(), [main.ORIGIN])
+        configured = main.app.user_middleware[0].kwargs["allow_origins"]
+        self.assertEqual(configured, [main.ORIGIN])
+        prior_dev, prior_token = os.environ.get("HARU_DEV"), os.environ.get("HARU_DEV_TOKEN")
+        try:
+            os.environ["HARU_DEV"] = "1"
+            os.environ["HARU_DEV_TOKEN"] = "local-test-token"
+            self.assertEqual(main._cors_origins(), [main.ORIGIN, "http://localhost:5173", "http://127.0.0.1:5173"])
+            loopback = TestClient(main.app, base_url="http://127.0.0.1")
+            self.assertEqual(loopback.get("/auth/me", headers={"Authorization": "Bearer local-test-token"}).status_code, 200)
+            remote = TestClient(main.app, base_url="http://testserver")
+            self.assertEqual(remote.get("/auth/me", headers={"Authorization": "Bearer local-test-token"}).status_code, 401)
+        finally:
+            if prior_dev is None: os.environ.pop("HARU_DEV", None)
+            else: os.environ["HARU_DEV"] = prior_dev
+            if prior_token is None: os.environ.pop("HARU_DEV_TOKEN", None)
+            else: os.environ["HARU_DEV_TOKEN"] = prior_token
+
+    def test_dev_token_is_rejected_when_haru_dev_is_unset(self):
+        prior_dev, prior_token = os.environ.get("HARU_DEV"), os.environ.get("HARU_DEV_TOKEN")
+        os.environ.pop("HARU_DEV", None)
+        os.environ["HARU_DEV_TOKEN"] = "local-test-token"
+        try:
+            client = TestClient(main.app, base_url="http://127.0.0.1")
+            self.assertEqual(client.get("/auth/me", headers={"Authorization": "Bearer local-test-token"}).status_code, 401)
+        finally:
+            if prior_dev is not None: os.environ["HARU_DEV"] = prior_dev
+            if prior_token is None: os.environ.pop("HARU_DEV_TOKEN", None)
+            else: os.environ["HARU_DEV_TOKEN"] = prior_token
 
     def test_bad_and_expired_tokens_rejected(self):
         self.assertFalse(main._valid("garbage"))
@@ -162,6 +195,32 @@ class WorkerPolicyTest(unittest.TestCase):
         header_replay = client.get(f"/tasks/{task['id']}/events", headers={"Last-Event-ID": "1"})
         self.assertEqual(header_replay.status_code, 200)
         self.assertIn("id: 2\nevent: todos", header_replay.text)
+
+    def test_task_mode_and_rewind_controls(self):
+        import asyncio
+        task = asyncio.run(main.task_queue.create("work", "auto", "c1"))
+        task["computer"] = "mac"
+        task["checkpoint"] = {"action_id": "a1", "commit": "a" * 40}
+        main.task_queue.add_event(task["id"], "action", {"id": "a1", "outward": False})
+        client = authed_client()
+        self.assertEqual(client.post(f"/tasks/{task['id']}/mode", json={"mode": "always_ask"}).json()["mode"], "always_ask")
+        self.assertEqual(client.post(f"/tasks/{task['id']}/mode", json={"mode": "allow_all"}).status_code, 403)
+        rewind = client.post(f"/tasks/{task['id']}/rewind", json={"action_id": "a1"})
+        self.assertEqual(rewind.status_code, 200)
+        previous_worker_token = os.environ.get("WORKER_TOKEN")
+        os.environ["WORKER_TOKEN"] = "worker-rewind-test-token"
+        worker = TestClient(main.app)
+        worker.headers["X-Worker-Token"] = "worker-rewind-test-token"
+        state = worker.get(f"/worker/events?task_id={task['id']}").json()
+        if previous_worker_token is None: os.environ.pop("WORKER_TOKEN", None)
+        else: os.environ["WORKER_TOKEN"] = previous_worker_token
+        self.assertEqual(state["mode"], "always_ask")
+        self.assertEqual(state["controls"][0]["kind"], "rewind")
+        main.task_queue.add_event(task["id"], "action", {"id": "a2", "outward": True})
+        task["checkpoint"] = {"action_id": "a2", "commit": "b" * 40}
+        outward = client.post(f"/tasks/{task['id']}/rewind", json={"action_id": "a2"}).json()
+        self.assertFalse(outward["can_rewind"])
+        self.assertIn("외부로 보낸", outward["reason"])
 
 
 class PasskeyFlowTest(unittest.TestCase):

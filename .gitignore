@@ -1,4 +1,5 @@
 .env
+web/.env.local
 worker/REPORT.md
 node_modules/
 dist/
