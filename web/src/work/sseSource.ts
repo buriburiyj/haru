@@ -3,7 +3,7 @@ import type { Computer, PermissionAnswer, PermissionMode, TaskConnection, TaskEv
 
 // Real TaskSource: POST /tasks, then GET /tasks/{id}/events (SSE). It turns the server's events (server/API.md,
 // "Background tasks and worker") into the TaskEvent the screens understand. Screens and useTask do not change.
-// Gaps between the server contract and work/types.ts are listed in the report of this change (not patched here).
+// Events are matched by id (action.id = output.id = skipped.id = error.id), never by command text.
 
 const TO_SERVER: Record<PermissionMode, ServerMode> = {
   ask: "always_ask",
@@ -21,149 +21,164 @@ const FROM_SERVER: Record<string, PermissionMode> = {
   skip: "quiet",
   allow_all: "all",
 };
-
-/** The server sends `worker` as free text; pick the computer we can recognise, otherwise leave it as it was. */
-function computerOf(worker: unknown): Computer | undefined {
-  const w = String(worker ?? "").toLowerCase();
-  if (/codespace/.test(w)) return "codespaces";
-  if (/action/.test(w)) return "actions";
-  if (/tab|termux|s6/.test(w)) return "tab";
-  if (/box|mac|lima|local/.test(w)) return "box";
-  return undefined;
-}
-
-/**
- * The server does not say what kind of action needs permission, so classify the command here as a safety net:
- * delete / send / pay never get [항상 허락]. (Codex should send `kind` itself; see the report.)
- */
-export function permissionKindOf(command: string): TaskPermission["kind"] {
-  if (/\b(rm|rmdir|unlink|shred|truncate)\b|\bgit\s+(clean|reset\s+--hard)\b|\bdrop\s+(table|database)\b|\bdelete\b/i.test(command)) return "delete";
-  if (/\bgit\s+push\b|\b(scp|rsync|sendmail|mail|mutt|ssh)\b|\bcurl\b[^|;]*(-X\s*(POST|PUT|PATCH|DELETE)|--data|-d\s|-F\s)|\bgh\s+(pr|issue|release)\s+(create|comment|merge)|\bnpm\s+publish\b|\bdeploy\b/i.test(command)) return "send";
-  if (/\b(pay|payment|purchase|checkout|billing|stripe)\b/i.test(command)) return "pay";
-  return "normal";
-}
-
-const looksLikeDiff = (t: string) => /^diff --git|^@@ |^\+\+\+ /m.test(t);
+const COMPUTER: Record<string, Computer> = { mac: "box", box: "box", tab: "tab", actions: "actions", codespaces: "codespaces" };
+const CHANGE: Record<string, "추가" | "수정" | "삭제"> = { added: "추가", modified: "수정", deleted: "삭제" };
+const TERMINAL = new Set(["done", "failed", "stopped"]);
 
 type Json = Record<string, unknown>;
+const str = (v: unknown, fallback = "") => (v === undefined || v === null ? fallback : String(v));
+const looksLikeDiff = (t: string) => /^diff --git|^@@ |^\+\+\+ /m.test(t);
 
 /** Stateful translator: one server event in, zero or more TaskEvents out. */
 function makeMapper(emit: (e: TaskEvent) => void) {
   let n = 0;
-  let nPerm = 0;
-  const actions: WorkAction[] = [];
-  let runningId: string | null = null;
+  const actions = new Map<string, WorkAction>();
   const skipped: { text: string; reason: string }[] = [];
   let summarySent = false;
+  // interjections: the screen already shows a row with a local id; the server confirms with its own id
+  const interjections: { localId: string; text: string; serverId?: string }[] = [];
 
   const upsert = (a: WorkAction) => {
-    const i = actions.findIndex((x) => x.id === a.id);
-    if (i < 0) actions.push(a);
-    else actions[i] = a;
+    actions.set(a.id, a);
     emit({ type: "action", action: a });
     return a;
   };
-  const byCommand = (cmd: unknown) => [...actions].reverse().find((a) => a.label === String(cmd ?? ""));
+  const patch = (id: string, change: Partial<WorkAction>, fallbackLabel: string) => {
+    const old = actions.get(id);
+    return upsert(old ? { ...old, ...change } : { id, label: fallbackLabel, status: "running", ...change });
+  };
   const finishRunning = (status: "done" | "skipped" = "done", reason?: string) => {
-    const a = actions.find((x) => x.id === runningId);
-    if (a && a.status === "running") upsert({ ...a, status, ...(reason ? { reason } : {}) });
-    runningId = null;
+    for (const a of actions.values()) if (a.status === "running") upsert({ ...a, status, ...(reason ? { reason } : {}) });
   };
 
   function handle(event: string, d: Json) {
     switch (event) {
       case "task": {
-        const mode = FROM_SERVER[String(d.mode)];
+        const mode = FROM_SERVER[str(d.mode)];
         emit({ type: "meta", ...(mode ? { mode } : {}), elapsed: 0 });
         emit({ type: "state", state: "working" });
         break;
       }
+      case "todos": {
+        const list = Array.isArray(d.todos) ? d.todos : [];
+        emit({ type: "todos", todos: list.map((t) => ({ id: str((t as Json).id), text: str((t as Json).text), done: !!(t as Json).done })) });
+        break;
+      }
       case "status": {
-        const computer = computerOf(d.worker);
-        if (computer) emit({ type: "meta", computer });
-        const s = String(d.status ?? "");
+        const computer = COMPUTER[str(d.computer ?? d.worker).toLowerCase()];
+        const elapsed = typeof d.elapsed === "number" ? d.elapsed : undefined;
+        emit({ type: "meta", ...(computer ? { computer } : {}), ...(elapsed !== undefined ? { elapsed } : {}) });
+        const s = str(d.status);
         if (s === "failed") emit({ type: "state", state: "failed" });
         else if (s === "stopped") emit({ type: "state", state: "stopped" });
         else emit({ type: "state", state: "working" }); // queued / running (done comes with the `done` event)
         break;
       }
       case "action": {
-        finishRunning();
-        const a = upsert({ id: `a${++n}`, label: String(d.command ?? ""), status: "running" });
-        runningId = a.id;
-        break;
-      }
-      case "output": {
-        const a = byCommand(d.command) ?? actions.find((x) => x.id === runningId);
-        const text = String(d.text ?? "");
-        const detail = { kind: looksLikeDiff(text) ? ("diff" as const) : ("output" as const), text };
-        if (a) {
-          upsert({ ...a, detail, status: a.status === "failed" || a.status === "skipped" ? a.status : "done" });
-          if (a.id === runningId) runningId = null;
-        } else upsert({ id: `a${++n}`, label: String(d.command ?? "출력"), status: "done", detail });
+        const id = str(d.id, `a${++n}`);
+        const status = (["running", "pending", "done", "failed", "skipped"] as const).find((s) => s === str(d.status)) ?? "running";
+        patch(id, { label: str(d.label) || str(d.command, "작업"), status, outward: d.outward === true }, str(d.label) || str(d.command));
         break;
       }
       case "checkpoint": {
-        const a = byCommand(d.command);
-        if (a) upsert({ ...a, checkpoint: true });
+        const id = str(d.action_id);
+        if (id && actions.has(id)) patch(id, { checkpoint: true }, "");
+        break;
+      }
+      case "output": {
+        const id = str(d.id);
+        const text = str(d.text);
+        const detail = { kind: looksLikeDiff(text) ? ("diff" as const) : ("output" as const), text };
+        const old = actions.get(id);
+        patch(id, { detail, status: old && (old.status === "failed" || old.status === "skipped") ? old.status : "done" }, str(d.command, "출력"));
         break;
       }
       case "permission_required": {
-        emit({
-          type: "permission",
-          request: { id: `p${++nPerm}`, title: "이 명령을 실행해도 될까요?", kind: permissionKindOf(String(d.command ?? "")), detail: String(d.command ?? "") },
-        });
+        const kind = str(d.kind);
+        const permission: TaskPermission = {
+          id: str(d.id ?? d.action_id, "p1"),
+          title: str(d.title, "이 행동을 해도 될까요?"),
+          kind: kind === "delete" || kind === "send" || kind === "pay" ? kind : "normal",
+          ...(d.command ? { detail: str(d.command) } : {}),
+        };
+        emit({ type: "permission", request: permission });
+        break;
+      }
+      case "permission": {
+        emit({ type: "permission", request: null }); // the decision was recorded
+        break;
+      }
+      case "interjection": {
+        const sid = str(d.id);
+        const text = str(d.content);
+        const mine = interjections.find((i) => !i.serverId && i.text === text);
+        if (mine) mine.serverId = sid;
+        upsert({ id: mine?.localId ?? `ix-${sid}`, label: text, status: "pending", interjection: true });
+        break;
+      }
+      case "interjection_applied": {
+        const sid = str(d.id);
+        const mine = interjections.find((i) => i.serverId === sid);
+        const id = mine?.localId ?? `ix-${sid}`;
+        const old = actions.get(id);
+        upsert({ ...(old ?? { id, label: "끼어들기", interjection: true }), status: "done" });
         break;
       }
       case "skipped": {
-        const reason = String(d.reason ?? "");
-        const a = d.command !== undefined ? byCommand(d.command) : undefined;
-        const text = String(d.command ?? reason);
-        if (a) upsert({ ...a, status: "skipped", reason });
-        else upsert({ id: `a${++n}`, label: text, status: "skipped", reason });
-        if (a && a.id === runningId) runningId = null;
+        const id = str(d.id);
+        const reason = str(d.reason);
+        const old = actions.get(id);
+        const text = old?.label || str(d.command, reason);
+        patch(id || `a${++n}`, { status: "skipped", reason }, text);
         skipped.push({ text, reason });
         emit({ type: "permission", request: null });
         break;
       }
       case "error": {
-        const code = d.exit_code !== undefined && d.exit_code !== null ? ` (종료 코드 ${String(d.exit_code)})` : "";
-        const reason = `${String(d.reason ?? "실패했습니다")}${code}`;
-        const a = actions.find((x) => x.id === runningId) ?? actions[actions.length - 1];
-        const detail = d.output ? { kind: "output" as const, text: String(d.output) } : undefined;
-        if (a) upsert({ ...a, status: "failed", reason, ...(detail ? { detail } : {}) });
-        else upsert({ id: `a${++n}`, label: "작업", status: "failed", reason, ...(detail ? { detail } : {}) });
-        runningId = null;
+        const code = d.exit_code !== undefined && d.exit_code !== null ? ` (종료 코드 ${str(d.exit_code)})` : "";
+        const detail = d.output ? { kind: "output" as const, text: str(d.output) } : undefined;
+        patch(str(d.id) || `a${++n}`, { status: "failed", reason: `${str(d.reason, "실패했습니다")}${code}`, ...(detail ? { detail } : {}) }, str(d.command, "작업"));
         break;
       }
       case "summary": {
         const files = Array.isArray(d.files) ? d.files : [];
+        const fromServer = Array.isArray(d.skipped) ? d.skipped : [];
         const summary: WorkSummary = {
-          did: d.text ? [String(d.text)] : [],
+          did: d.text ? [str(d.text)] : [],
           files: files.map((f) => {
-            if (typeof f === "string") return { name: f, change: "수정" as const };
-            const o = f as Json;
-            const c = String(o.change ?? "");
-            return { name: String(o.name ?? o.path ?? ""), change: c === "추가" || c === "삭제" ? (c as "추가" | "삭제") : ("수정" as const) };
+            const o = (typeof f === "string" ? { path: f } : f) as Json;
+            return { name: str(o.path ?? o.name), change: CHANGE[str(o.change)] ?? "수정" };
           }),
-          skipped,
-          usage: [], // the server sends no free-limit numbers yet
+          skipped: [
+            ...fromServer.map((s) => {
+              const o = (typeof s === "string" ? { text: s } : s) as Json;
+              return { text: str(o.text ?? o.command ?? o.label), reason: str(o.reason) };
+            }),
+            ...skipped.filter((s) => !fromServer.some((x) => str((x as Json).command ?? (x as Json).text) === s.text)),
+          ],
+          usage: (Array.isArray(d.usage) ? d.usage : []).map((u) => ({ label: str((u as Json).label), value: str((u as Json).value) })),
         };
         summarySent = true;
         emit({ type: "summary", summary });
         break;
       }
       case "done": {
-        const error = String(d.error ?? "");
-        const result = String(d.result ?? "");
-        finishRunning(error ? "skipped" : "done", error ? "작업이 끝났습니다." : undefined);
-        if (error) {
-          if (!actions.some((a) => a.status === "failed")) upsert({ id: `a${++n}`, label: "작업이 실패했습니다", status: "failed", reason: error });
-          emit({ type: "state", state: "failed" });
-        } else {
-          emit({ type: "state", state: "done" });
-          if (!summarySent && result) emit({ type: "summary", summary: { did: [result], files: [], skipped, usage: [] } });
-        }
+        finishRunning("done");
+        emit({ type: "state", state: "done" });
+        const result = str(d.result);
+        if (!summarySent && result) emit({ type: "summary", summary: { did: [result], files: [], skipped, usage: [] } });
+        break;
+      }
+      case "failed": {
+        finishRunning("skipped", "중단되었습니다.");
+        const error = str(d.error, "작업이 실패했습니다.");
+        if (![...actions.values()].some((a) => a.status === "failed")) upsert({ id: `a${++n}`, label: "작업이 실패했습니다", status: "failed", reason: error });
+        emit({ type: "state", state: "failed" });
+        break;
+      }
+      case "stopped": {
+        finishRunning("skipped", "멈췄습니다.");
+        emit({ type: "state", state: "stopped" });
         break;
       }
     }
@@ -171,21 +186,20 @@ function makeMapper(emit: (e: TaskEvent) => void) {
 
   return {
     handle,
-    /** Local failure (could not create the task, stream broke): shown as a failed row. */
-    failed(label: string, reason: string, state: "failed" | "working" = "failed") {
-      finishRunning("skipped", "중단되었습니다.");
-      upsert({ id: `a${++n}`, label, status: "failed", reason });
-      emit({ type: "state", state });
+    addInterjection(localId: string, text: string) {
+      interjections.push({ localId, text });
     },
-    stopped() {
-      finishRunning("skipped", "멈췄습니다.");
-      emit({ type: "state", state: "stopped" });
+    /** Local failure (could not create the task, stream lost for good): shown as a failed row. */
+    failed(label: string, reason: string, state: "failed" | "working" = "failed") {
+      if (state === "failed") finishRunning("skipped", "중단되었습니다.");
+      upsert({ id: `local-${++n}`, label, status: "failed", reason });
+      emit({ type: "state", state });
     },
   };
 }
 
-/** Reads an SSE response and calls onEvent(event, data) for every complete block. */
-async function readSse(res: Response, onEvent: (event: string, data: Json) => void): Promise<void> {
+/** Reads an SSE response and calls onEvent(event, data, id) for every complete block. */
+async function readSse(res: Response, onEvent: (event: string, data: Json, id: number | null) => void): Promise<void> {
   if (!res.body) return;
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -199,16 +213,38 @@ async function readSse(res: Response, onEvent: (event: string, data: Json) => vo
       const block = buf.slice(0, i);
       buf = buf.slice(i).replace(/^\r?\n\r?\n/, "");
       const ev = /^event: ?(.*)$/m.exec(block)?.[1]?.trim();
+      const idText = /^id: ?(\d+)$/m.exec(block)?.[1];
       const data = [...block.matchAll(/^data: ?(.*)$/gm)].map((m) => m[1]).join("\n");
       if (!ev || !data) continue; // comments / keep-alive
       try {
         const parsed = JSON.parse(data);
-        onEvent(ev, parsed && typeof parsed === "object" ? (parsed as Json) : { value: parsed });
+        onEvent(ev, parsed && typeof parsed === "object" ? (parsed as Json) : { value: parsed }, idText ? Number(idText) : null);
       } catch {
         /* a broken block is skipped */
       }
     }
   }
+}
+
+/**
+ * Reconnect after a dropped stream: GET /tasks/{id}/events?after=N with Last-Event-ID (server/API.md).
+ * api.ts has no function for this yet (it only has taskEvents without `after`), so the three lines of base URL and
+ * token handling are repeated here. Replace with the api.ts function once it exists.
+ */
+async function reopenEvents(taskId: string, after: number, signal: AbortSignal): Promise<Response> {
+  const base = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
+  let token = "";
+  try {
+    token = localStorage.getItem("haru_token") ?? "";
+  } catch {
+    /* ignore */
+  }
+  const res = await fetch(`${base}/tasks/${encodeURIComponent(taskId)}/events?after=${after}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "Last-Event-ID": String(after) },
+    signal,
+  });
+  if (!res.ok) throw Object.assign(new Error(`http ${res.status}`), { status: res.status });
+  return res;
 }
 
 function explain(err: unknown): string {
@@ -219,9 +255,11 @@ function explain(err: unknown): string {
   return "서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.";
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export type SseSourceOptions = { prompt: string; mode: PermissionMode; conversationId?: string };
 
-/** Real source for Work mode: starts the task on the server and follows its events. */
+/** Real source for Work mode: starts the task on the server and follows its events (reconnects up to 5 times). */
 export function sseSource(opts: SseSourceOptions): TaskSource {
   return {
     connect(emit): TaskConnection {
@@ -237,45 +275,56 @@ export function sseSource(opts: SseSourceOptions): TaskSource {
           return null;
         });
 
-      void taskId.then(async (id) => {
-        if (!id) return;
-        try {
-          const res = await taskEvents(id, ctrl.signal);
-          await readSse(res, (event, data) => map.handle(event, data));
-        } catch (err) {
-          if (ctrl.signal.aborted) return;
-          map.failed("서버와 연결이 끊겼습니다", `${explain(err)} 작업은 서버에서 계속될 수 있습니다.`, "working");
+      async function follow(id: string) {
+        let after = 0;
+        let tries = 0;
+        let finished = false;
+        while (!ctrl.signal.aborted && !finished) {
+          try {
+            const res = after > 0 ? await reopenEvents(id, after, ctrl.signal) : await taskEvents(id, ctrl.signal);
+            tries = 0;
+            await readSse(res, (event, data, sid) => {
+              if (sid !== null) after = sid;
+              if (TERMINAL.has(event)) finished = true;
+              map.handle(event, data);
+            });
+            if (!finished) throw new Error("stream ended");
+          } catch (err) {
+            if (ctrl.signal.aborted) return;
+            const status = (err as { status?: number })?.status;
+            if (status === 401 || status === 403 || status === 404 || ++tries > 5) {
+              map.failed("서버와 연결이 끊겼습니다", `${explain(err)} 작업은 서버에서 계속될 수 있습니다.`, "working");
+              return;
+            }
+            await sleep(Math.min(8000, 1000 * 2 ** (tries - 1)));
+          }
         }
-      });
+      }
+      void taskId.then((id) => (id ? follow(id) : undefined));
 
       return {
         stop() {
+          // the server answers with a `stopped` event; nothing is faked locally
           void taskId.then(async (id) => {
-            if (!id) return;
-            try {
-              await stopTask(id);
-            } finally {
-              map.stopped();
-            }
+            if (id) await stopTask(id).catch(() => map.failed("멈추지 못했습니다", "서버에 연결할 수 없습니다.", "working"));
           });
         },
-        interject(text) {
-          void taskId.then(async (id) => {
-            if (!id) return;
-            await messageTask(id, text).catch(() => map.failed("끼어들기를 보내지 못했습니다", "작업이 끝났거나 서버에 연결할 수 없습니다.", "working"));
+        interject(text, id) {
+          map.addInterjection(id, text);
+          void taskId.then(async (tid) => {
+            if (tid) await messageTask(tid, text).catch(() => map.failed("끼어들기를 보내지 못했습니다", "작업이 끝났거나 서버에 연결할 수 없습니다.", "working"));
           });
         },
         answerPermission(_requestId: string, answer: PermissionAnswer) {
-          void taskId.then(async (id) => {
-            if (!id) return;
-            await decideTaskPermission(id, answer === "once" ? "allow" : answer).catch(() => map.failed("허락을 전하지 못했습니다", "서버에 연결할 수 없습니다.", "working"));
+          void taskId.then(async (tid) => {
+            if (tid) await decideTaskPermission(tid, answer === "once" ? "allow" : answer).catch(() => map.failed("허락을 전하지 못했습니다", "서버에 연결할 수 없습니다.", "working"));
           });
         },
         rewind() {
-          // No server endpoint yet (listed in the report). The screen still offers it; nothing happens on the server.
+          // POST /tasks/{id}/rewind is defined in API.md but not implemented on the server yet.
         },
         setMode(mode) {
-          // No server endpoint to change the mode of a running task yet: only the chip changes.
+          // POST /tasks/{id}/mode is defined in API.md but not implemented on the server yet: only the chip changes.
           emit({ type: "meta", mode });
         },
         close() {
