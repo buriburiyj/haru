@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { listActiveTasks, logout } from "./api";
+import { getTask, listActiveTasks, logout, type TaskDetail } from "./api";
 import { useAttachments } from "./hooks/useAttachments";
 import { useAuth } from "./hooks/useAuth";
 import { useChat } from "./hooks/useChat";
@@ -13,7 +13,7 @@ import ChatView from "./components/ChatView";
 import LoginScreen from "./components/LoginScreen";
 import PermissionModeMenu from "./components/work/PermissionModeMenu";
 import WorkChatView from "./components/work/WorkChatView";
-import { attachSource, sseSource } from "./work/sseSource";
+import { attachSource, sseSource, storedSource } from "./work/sseSource";
 import { ISOLATED } from "./work/types";
 import { useTaskThread } from "./work/useTaskThread";
 import { relativeWhen, type ChatRow } from "./components/chat/dataTypes";
@@ -40,7 +40,7 @@ export default function App() {
   const [permMode, setPermMode] = usePermissionMode();
   const [workOpen, setWorkOpen] = useState(false);
   // Work mode: each message sent starts a task on the server (POST /tasks + SSE). ?demo=work still uses the fake source.
-  const thread = useTaskThread(useCallback(({ prompt, mode }) => sseSource({ prompt, mode }), []));
+  const thread = useTaskThread(useCallback(({ prompt, mode, conversationId }) => sseSource({ prompt, mode, conversationId }), []));
 
   // After a refresh: follow the tasks that still run on the server (GET /tasks?active=true), once per page load
   const attached = useRef(false);
@@ -90,7 +90,7 @@ export default function App() {
       setText("");
       if (thread.working) thread.interject(t); // typing while it works = interjection
       else {
-        thread.start(t, permMode);
+        thread.start(t, permMode, chat.chatId); // linked to the open saved chat, if any
         setWorkOpen(true);
       }
       return;
@@ -157,7 +157,7 @@ export default function App() {
     chat.reset();
     setWorkOpen(false);
   };
-  const openChat = (id: string) => {
+  const openChat = async (id: string) => {
     if (id === WORK_ROW_ID) {
       chat.reset();
       setWorkOpen(true);
@@ -165,7 +165,17 @@ export default function App() {
       return;
     }
     setWorkOpen(false);
-    void chat.open(id);
+    const d = await chat.open(id);
+    const taskIds = d?.task_ids ?? [];
+    if (taskIds.length === 0) return;
+    // This conversation has Work tasks: show them as they ended (stored events, nothing is run again).
+    const found = (await Promise.all(taskIds.map((tid) => getTask(tid).catch(() => null)))).filter((t): t is TaskDetail => t !== null);
+    if (found.length === 0) return;
+    found.sort((x, y) => (x.started_at ?? 0) - (y.started_at ?? 0));
+    thread.clear();
+    found.forEach((t) => thread.attach(t.content, storedSource(t)));
+    setMode("work");
+    setWorkOpen(true);
   };
 
   return (
@@ -173,7 +183,8 @@ export default function App() {
       <Sidebar
         chats={rows}
         activeId={showWork ? WORK_ROW_ID : chat.chatId}
-        onOpenChat={openChat}
+        onOpenChat={(id) => void openChat(id)}
+        listWarning={list.warning ? "대화 목록을 불러오지 못했습니다. 저장소에 연결할 수 없습니다." : undefined}
         onDeleteChats={(ids) => chat.removeChats(ids.filter((i) => i !== WORK_ROW_ID))}
         searchChats={list.search}
         onNew={newChat}

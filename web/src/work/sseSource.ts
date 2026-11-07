@@ -1,4 +1,4 @@
-import { createTask, decideTaskPermission, messageTask, rewindTask, setTaskMode, stopTask, taskEvents, type ActiveTask, type PermissionMode as ServerMode } from "../api";
+import { createTask, decideTaskPermission, messageTask, rewindTask, setTaskMode, stopTask, taskEvents, type ActiveTask, type PermissionMode as ServerMode, type TaskDetail } from "../api";
 import type { Computer, PermissionAnswer, PermissionMode, TaskConnection, TaskEvent, TaskPermission, TaskSource, WorkAction, WorkSummary } from "./types";
 
 // Real TaskSource: POST /tasks, then GET /tasks/{id}/events (SSE). It turns the server's events (server/API.md,
@@ -26,10 +26,11 @@ const CHANGE: Record<string, "추가" | "수정" | "삭제"> = { added: "추가"
 const TERMINAL = new Set(["done", "failed", "stopped"]);
 
 type Json = Record<string, unknown>;
+const norm = (t: string) => t.replace(/\s+/g, " ").trim().toLowerCase();
 const str = (v: unknown, fallback = "") => (v === undefined || v === null ? fallback : String(v));
 
 /** Stateful translator: one server event in, zero or more TaskEvents out. */
-function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean } = { statusElapsed: true }) {
+function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean; prompt?: string } = { statusElapsed: true }) {
   let n = 0;
   const actions = new Map<string, WorkAction>();
   const skipped: { text: string; reason: string }[] = [];
@@ -60,7 +61,12 @@ function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean
       }
       case "todos": {
         const list = Array.isArray(d.todos) ? d.todos : [];
-        emit({ type: "todos", todos: list.map((t) => ({ id: str((t as Json).id), text: str((t as Json).text), done: !!(t as Json).done })) });
+        const same = (text: string) => !!opts.prompt && norm(text) === norm(opts.prompt);
+        emit({
+          type: "todos",
+          // a todo that only repeats the user's sentence adds nothing: not shown twice
+          todos: list.map((t) => ({ id: str((t as Json).id), text: str((t as Json).text), done: !!(t as Json).done })).filter((t) => !same(t.text)),
+        });
         break;
       }
       case "status": {
@@ -251,29 +257,27 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export type SseSourceOptions = { prompt: string; mode: PermissionMode; conversationId?: string };
 
-/**
- * Follows one task on the server. `taskId` resolves to the id (or null when it could not be created).
- * Reconnects up to 5 times with taskEvents(id, after). Mode change and rewind go to the real endpoints.
- */
-function connectTask(emit: (e: TaskEvent) => void, taskId: Promise<string | null>, map: ReturnType<typeof makeMapper>): TaskConnection {
-  const ctrl = new AbortController();
+type Cursor = { after: number; following: boolean };
 
-  async function follow(id: string) {
-    let after = 0;
-    let tries = 0;
-    let finished = false;
-    while (!ctrl.signal.aborted && !finished) {
+/** Follows the event stream of a task from `cursor.after`; reconnects up to 5 times; stops at done / failed / stopped. */
+async function followFrom(id: string, cursor: Cursor, map: ReturnType<typeof makeMapper>, signal: AbortSignal) {
+  if (cursor.following) return;
+  cursor.following = true;
+  let tries = 0;
+  let finished = false;
+  try {
+    while (!signal.aborted && !finished) {
       try {
-        const res = after > 0 ? await taskEvents(id, after, ctrl.signal) : await taskEvents(id, ctrl.signal);
+        const res = cursor.after > 0 ? await taskEvents(id, cursor.after, signal) : await taskEvents(id, signal);
         tries = 0;
         await readSse(res, (event, data, sid) => {
-          if (sid !== null) after = sid;
+          if (sid !== null) cursor.after = Math.max(cursor.after, sid);
           if (TERMINAL.has(event)) finished = true;
           map.handle(event, data);
         });
         if (!finished) throw new Error("stream ended");
       } catch (err) {
-        if (ctrl.signal.aborted) return;
+        if (signal.aborted) return;
         const status = (err as { status?: number })?.status;
         if (status === 401 || status === 403 || status === 404 || ++tries > 5) {
           map.failed("서버와 연결이 끊겼습니다", `${explain(err)} 작업은 서버에서 계속될 수 있습니다.`, "working");
@@ -282,8 +286,18 @@ function connectTask(emit: (e: TaskEvent) => void, taskId: Promise<string | null
         await sleep(Math.min(8000, 1000 * 2 ** (tries - 1)));
       }
     }
+  } finally {
+    cursor.following = false;
   }
-  void taskId.then((id) => (id ? follow(id) : undefined));
+}
+
+/**
+ * Controls of one task. Mode change and rewind go to the real endpoints; their results come back as events
+ * (`mode_changed`, `rewind_requested`, `rewound`), so after a rewind the stream is followed again (also for finished tasks).
+ */
+function connectTask(taskId: Promise<string | null>, map: ReturnType<typeof makeMapper>, cursor: Cursor, ctrl: AbortController, followNow: boolean): TaskConnection {
+  const follow = (id: string) => followFrom(id, cursor, map, ctrl.signal);
+  if (followNow) void taskId.then((id) => (id ? follow(id) : undefined));
 
   return {
     stop() {
@@ -309,7 +323,7 @@ function connectTask(emit: (e: TaskEvent) => void, taskId: Promise<string | null
         try {
           const r = await rewindTask(tid, actionId);
           if (!r.ok) map.failed("되돌리지 못했습니다", r.reason ?? "되돌릴 수 없는 행동입니다.", "working");
-          // on success the server sends rewind_requested, then rewound
+          else void follow(tid); // rewind_requested, then rewound, arrive on the stream
         } catch (err) {
           map.failed("되돌리지 못했습니다", explain(err), "working");
         }
@@ -336,7 +350,7 @@ function connectTask(emit: (e: TaskEvent) => void, taskId: Promise<string | null
 export function sseSource(opts: SseSourceOptions): TaskSource {
   return {
     connect(emit): TaskConnection {
-      const map = makeMapper(emit);
+      const map = makeMapper(emit, { statusElapsed: true, prompt: opts.prompt });
       emit({ type: "meta", mode: opts.mode, elapsed: 0 });
       emit({ type: "state", state: "working" });
       const taskId: Promise<string | null> = createTask(opts.prompt, TO_SERVER[opts.mode], opts.conversationId ?? "")
@@ -345,7 +359,7 @@ export function sseSource(opts: SseSourceOptions): TaskSource {
           map.failed("작업을 시작하지 못했습니다", explain(err));
           return null;
         });
-      return connectTask(emit, taskId, map);
+      return connectTask(taskId, map, { after: 0, following: false }, new AbortController(), true);
     },
   };
 }
@@ -357,11 +371,34 @@ export function sseSource(opts: SseSourceOptions): TaskSource {
 export function attachSource(task: ActiveTask): TaskSource {
   return {
     connect(emit): TaskConnection {
-      const map = makeMapper(emit, { statusElapsed: false });
+      const map = makeMapper(emit, { statusElapsed: false, prompt: task.content });
       const computer = COMPUTER[str(task.computer).toLowerCase()];
       emit({ type: "meta", mode: FROM_SERVER[task.mode], ...(computer ? { computer } : {}), elapsed: task.elapsed });
       emit({ type: "state", state: "working" });
-      return connectTask(emit, Promise.resolve(task.id), map);
+      return connectTask(Promise.resolve(task.id), map, { after: 0, following: false }, new AbortController(), true);
+    },
+  };
+}
+
+/**
+ * Source for a finished task (GET /tasks/{id} gave the stored events): replays them, no new run and no network.
+ * Only when the user presses a rewind button does it follow the stream again (rewind_requested, then rewound).
+ */
+export function storedSource(task: TaskDetail): TaskSource {
+  return {
+    connect(emit): TaskConnection {
+      const map = makeMapper(emit, { statusElapsed: false, prompt: task.content });
+      const computer = COMPUTER[str(task.computer).toLowerCase()];
+      emit({ type: "meta", mode: FROM_SERVER[task.mode], ...(computer ? { computer } : {}), elapsed: task.elapsed ?? 0 });
+      const cursor: Cursor = { after: 0, following: false };
+      let ended = false;
+      for (const e of [...task.events].sort((a, b) => a.id - b.id)) {
+        cursor.after = Math.max(cursor.after, e.id);
+        if (TERMINAL.has(e.event)) ended = true;
+        map.handle(e.event, e.data);
+      }
+      if (!ended) emit({ type: "state", state: task.status === "failed" ? "failed" : task.status === "stopped" ? "stopped" : "done" });
+      return connectTask(Promise.resolve(task.id), map, cursor, new AbortController(), false);
     },
   };
 }

@@ -17,7 +17,7 @@ function threadReduce(items: Raw[], a: Action): Raw[] {
 
 type Clock = { base: number; at: number; frozen: boolean };
 
-export function useTaskThread(makeSource: (opts: { prompt: string; mode: PermissionMode }) => TaskSource) {
+export function useTaskThread(makeSource: (opts: { prompt: string; mode: PermissionMode; conversationId?: string }) => TaskSource) {
   const [raw, dispatch] = useReducer(threadReduce, []);
   const [, tick] = useState(0);
   const conns = useRef(new Map<string, TaskConnection>());
@@ -60,8 +60,15 @@ export function useTaskThread(makeSource: (opts: { prompt: string; mode: Permiss
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
-  const start = useCallback((prompt: string, mode: PermissionMode) => startWith(prompt, makeSource({ prompt, mode })), [startWith, makeSource]);
-  /** Follow a task that already runs on the server (after a refresh). */
+  const start = useCallback((prompt: string, mode: PermissionMode, conversationId?: string) => startWith(prompt, makeSource({ prompt, mode, conversationId })), [startWith, makeSource]);
+  /** Close every task of this conversation and empty the list (before showing another conversation's tasks). */
+  const clear = useCallback(() => {
+    conns.current.forEach((c) => c.close());
+    conns.current.clear();
+    clocks.current.clear();
+    dispatch({ type: "clear" });
+  }, []);
+  /** Follow a task that already runs on the server (after a refresh), or show a stored one. */
   const attach = useCallback((prompt: string, source: TaskSource) => startWith(prompt, source), [startWith]);
 
   const tasks: TaskItem[] = raw.map((t) => ({ id: t.id, prompt: t.prompt, run: { ...t.run, elapsed: elapsedOf(t.id) }, files: t.files, permission: t.permission }));
@@ -91,5 +98,5 @@ export function useTaskThread(makeSource: (opts: { prompt: string; mode: Permiss
   const rewind = useCallback((taskId: string, actionId: string) => conns.current.get(taskId)?.rewind(actionId), []);
   const setMode = useCallback((mode: PermissionMode) => activeId && conns.current.get(activeId)?.setMode(mode), [activeId]);
 
-  return { tasks, active, working: active?.run.state === "working", start, attach, stop, interject, decide, rewind, setMode };
+  return { tasks, active, working: active?.run.state === "working", start, attach, clear, stop, interject, decide, rewind, setMode };
 }

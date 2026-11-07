@@ -25,11 +25,14 @@ function MenuItem({ icon, label, onClick }: { icon: ReactNode; label: string; on
 export default function SidebarMenu({
   chats,
   activeId,
+  listWarning,
   onNew,
   onOpenChat,
 }: {
   chats: ChatRow[];
   activeId?: string;
+  /** small notice line above the list */
+  listWarning?: string;
   onNew: () => void;
   onOpenChat: (id: string) => void;
 }) {
@@ -65,7 +68,12 @@ export default function SidebarMenu({
         </button>
         {expanded && (
           <>
-            {chats.length === 0 && <p className="px-2 py-1 text-xs text-muted">아직 대화가 없습니다</p>}
+            {listWarning && (
+              <p role="status" className="px-2 py-1 text-xs text-danger">
+                {listWarning}
+              </p>
+            )}
+            {chats.length === 0 && !listWarning && <p className="px-2 py-1 text-xs text-muted">아직 대화가 없습니다</p>}
             {chats.slice(0, 7).map((c) => (
               <Button
                 key={c.id}

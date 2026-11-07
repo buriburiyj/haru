@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import { chat as chatApi, deleteChat, getChat, renameChat, type ChatMode, type Msg } from "../api";
+import { chat as chatApi, deleteChat, getChat, renameChat, type ChatDetail, type ChatMode, type Msg } from "../api";
 import type { MsgMeta } from "../components/chat/dataTypes";
 import { isTempChat, setTempChat } from "../components/temp/TempChat";
 
@@ -71,9 +71,9 @@ export function useChat(onUnauthorized: () => void, onChanged: () => void = () =
     setNotice("");
   }, []);
 
-  /** Opens a saved chat (GET /chats/{id}). Leaves temporary mode. */
+  /** Opens a saved chat (GET /chats/{id}). Leaves temporary mode. Returns the chat (with task_ids) or null when it could not be opened. */
   const open = useCallback(
-    async (id: string) => {
+    async (id: string): Promise<ChatDetail | null> => {
       try {
         const d = await getChat(id);
         setTempChat(false);
@@ -82,12 +82,14 @@ export function useChat(onUnauthorized: () => void, onChanged: () => void = () =
         setChatId(d.id);
         setTitle(d.title);
         setNotice("");
+        return d;
       } catch (err) {
         if ((err as Error).message === "unauthorized") onUnauthorized();
         else {
           setNotice("대화를 불러오지 못했어요.");
           onChanged(); // maybe it was deleted elsewhere: reload the list
         }
+        return null;
       }
     },
     [onUnauthorized, onChanged],

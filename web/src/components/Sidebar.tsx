@@ -12,6 +12,8 @@ export type SidebarProps = {
   onOpenChat: (id: string) => void;
   onDeleteChats: (ids: string[]) => void | Promise<void>;
   searchChats: (q: string) => Promise<ChatRow[]>;
+  /** one small notice line above the chat list (e.g. the server could not reach its storage) */
+  listWarning?: string;
   onNew: () => void;
   userName: string;
   onLogout: () => void;
@@ -30,7 +32,7 @@ const CLOSE_DRAWER_EVENTS = [
   "haru:new-project",
 ];
 
-export default function Sidebar({ chats, activeId, onOpenChat, onDeleteChats, searchChats, onNew: onNewProp, userName, onLogout, open: openProp, onClose: onCloseProp }: SidebarProps) {
+export default function Sidebar({ chats, activeId, onOpenChat, onDeleteChats, searchChats, listWarning, onNew: onNewProp, userName, onLogout, open: openProp, onClose: onCloseProp }: SidebarProps) {
   const [tab, setTab] = useState<"chat" | "code">("chat");
   // The first screen has its own ☰ button, which asks the drawer to open through an event.
   const [local, setLocal] = useState(false);
@@ -99,6 +101,7 @@ export default function Sidebar({ chats, activeId, onOpenChat, onDeleteChats, se
         <SidebarMenu
           chats={chats}
           activeId={activeId}
+          listWarning={listWarning}
           onNew={onNewProp}
           onOpenChat={(id) => {
             onOpenChat(id);
