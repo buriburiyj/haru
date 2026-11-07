@@ -17,7 +17,7 @@ function threadReduce(items: Raw[], a: Action): Raw[] {
 
 type Clock = { base: number; at: number; frozen: boolean };
 
-export function useTaskThread(makeSource: (opts: { mode: PermissionMode }) => TaskSource) {
+export function useTaskThread(makeSource: (opts: { prompt: string; mode: PermissionMode }) => TaskSource) {
   const [raw, dispatch] = useReducer(threadReduce, []);
   const [, tick] = useState(0);
   const conns = useRef(new Map<string, TaskConnection>());
@@ -49,7 +49,7 @@ export function useTaskThread(makeSource: (opts: { mode: PermissionMode }) => Ta
       const id = `task-${++counter.current}`;
       dispatch({ type: "add", id, prompt });
       clocks.current.set(id, { base: 0, at: Date.now(), frozen: false });
-      const c = makeSource({ mode }).connect((e) => {
+      const c = makeSource({ prompt, mode }).connect((e) => {
         if (e.type === "meta" && e.elapsed !== undefined) clocks.current.set(id, { base: e.elapsed, at: Date.now(), frozen: false });
         if (e.type === "state" && e.state !== "working") clocks.current.set(id, { base: elapsedOf(id), at: Date.now(), frozen: true });
         dispatch({ type: "event", id, event: e });

@@ -13,7 +13,7 @@ import ChatView from "./components/ChatView";
 import LoginScreen from "./components/LoginScreen";
 import PermissionModeMenu from "./components/work/PermissionModeMenu";
 import WorkChatView from "./components/work/WorkChatView";
-import { fakeSource } from "./work/fakeSource";
+import { sseSource } from "./work/sseSource";
 import { ISOLATED } from "./work/types";
 import { useTaskThread } from "./work/useTaskThread";
 import { relativeWhen, type ChatRow } from "./components/chat/dataTypes";
@@ -39,8 +39,8 @@ export default function App() {
   const [drawer, setDrawer] = useState(false);
   const [permMode, setPermMode] = usePermissionMode();
   const [workOpen, setWorkOpen] = useState(false);
-  // Work mode: each message sent starts a task. The source is fake example data until the real stream is connected.
-  const thread = useTaskThread(useCallback(({ mode }) => fakeSource("working", "box", { mode, elapsedStart: 0 }), []));
+  // Work mode: each message sent starts a task on the server (POST /tasks + SSE). ?demo=work still uses the fake source.
+  const thread = useTaskThread(useCallback(({ prompt, mode }) => sseSource({ prompt, mode }), []));
 
   // Switching temporary chat on or off starts a fresh conversation (a saved chat never turns temporary half way).
   const firstTemp = useRef(true);
