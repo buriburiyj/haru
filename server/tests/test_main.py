@@ -10,10 +10,12 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "worker"))
 os.environ["SESSION_SECRET"] = "test-secret"
 os.environ["HARU_DISABLE_LLM"] = "1"  # no Groq calls from tests
 os.environ.pop("SETUP_TOKEN", None)  # a real token in the shell must not change test results
 os.environ["CRED_FILE"] = str(Path(tempfile.mkdtemp()) / "creds.json")
+os.environ.setdefault("WORKER_TOKEN", "worker-tests-only")
 
 import cbor2  # noqa: E402
 from cryptography.hazmat.primitives import hashes  # noqa: E402
@@ -21,6 +23,7 @@ from cryptography.hazmat.primitives.asymmetric import ec  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 import main  # noqa: E402
+import haru_worker  # noqa: E402
 
 
 async def _offline_state(chat_id):
@@ -65,6 +68,7 @@ class AuthTest(unittest.TestCase):
         finally:
             os.environ.pop("WORKER_TOKEN", None)
 
+
     def test_chat_requires_session(self):
         self.assertEqual(TestClient(main.app).post("/chat", json={}).status_code, 401)
 
@@ -106,6 +110,41 @@ class AuthTest(unittest.TestCase):
         finally:
             del os.environ["SETUP_TOKEN"]
         self.assertEqual(r.status_code, 401)
+
+
+class WorkerPolicyTest(unittest.TestCase):
+    def test_command_policy_blocks_danger_and_classifies_auto_actions(self):
+        self.assertTrue(haru_worker.safe_command("ls -la && head -n 1 README.md"))
+        self.assertEqual(haru_worker.command_class("ls -la && head -n 1 README.md"), "read")
+        self.assertFalse(haru_worker.safe_command("cat ~/.env"))
+        self.assertFalse(haru_worker.safe_command("rm -rf build"))
+        self.assertFalse(haru_worker.safe_command("git push origin main"))
+        self.assertEqual(haru_worker.command_class("python3 script.py"), "unknown")
+
+    def test_worker_plan_uses_server_router_and_returns_json_action(self):
+        import asyncio
+        os.environ["WORKER_TOKEN"] = "router-test-token"
+        task = asyncio.run(main.task_queue.create("list files and summarize README", "auto", "c1"))
+        client = TestClient(main.app)
+        client.headers["X-Worker-Token"] = "router-test-token"
+        original = main.router.route
+        calls = []
+
+        async def fake_route(messages, mode, effort=""):
+            calls.append((messages, mode))
+            yield "model", "test-model"
+            yield "delta", '{"command":"ls -la && head -n 1 README.md","summary":"README first line summary"}'
+
+        main.router.route = fake_route
+        try:
+            result = client.post("/worker/plan", json={"task_id": task["id"], "entries": ["README.md"]})
+            self.assertEqual(result.status_code, 200, result.text)
+            self.assertEqual(result.json()["command"], "ls -la && head -n 1 README.md")
+            self.assertEqual(calls[0][1], "auto")
+            self.assertIn("README.md", calls[0][0][0]["content"])
+        finally:
+            main.router.route = original
+            os.environ.pop("WORKER_TOKEN", None)
 
 
 class PasskeyFlowTest(unittest.TestCase):

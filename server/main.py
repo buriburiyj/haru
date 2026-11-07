@@ -672,7 +672,7 @@ def _worker_ok(request: Request):
 async def task_create(request: Request):
     body = await request.json()
     content = body.get("content")
-    mode = body.get("mode", "default")
+    mode = body.get("mode", "auto")
     if not isinstance(content, str) or not content.strip():
         return JSONResponse({"detail": "content required"}, status_code=400)
     try:
@@ -710,7 +710,7 @@ async def task_permission(task_id: str, request: Request):
     if not task:
         return JSONResponse({"detail": "not found"}, status_code=404)
     task["permissions"].append(decision)
-    task_queue.add_event(task_id, "permission", {"decision": decision})
+    task_queue.add_event(task_id, "permission", {"decision": decision, "task_id": task_id})
     return {"ok": True}
 
 
@@ -742,6 +742,31 @@ async def worker_claim(request: Request):
     return {"task": await task_queue.claim(str(body.get("worker_id", "worker")))}
 
 
+@app.post("/worker/plan")
+async def worker_plan(request: Request):
+    if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    body = await request.json()
+    task = task_queue.TASKS.get(body.get("task_id"))
+    if not task: return JSONResponse({"detail": "not found"}, status_code=404)
+    prompt = ("Plan one safe, read-only or workspace-local shell command to fulfill the task. "
+              "Never read secrets or .env files. Never delete, send data externally, push, deploy, or pay. "
+              "Return only JSON with keys command and summary. The command runs inside the task workspace.\n\n"
+              f"Task: {task['content']}\nWorkspace entries: {json.dumps(body.get('entries', []), ensure_ascii=False)}")
+    parts, model = [], None
+    async for kind, value in router.route([{"role": "user", "content": prompt}], "auto"):
+        if kind == "model": model = value
+        elif kind == "delta": parts.append(value)
+    if not parts:
+        return JSONResponse({"detail": "model unavailable"}, status_code=503)
+    try:
+        plan = json.loads("".join(parts).strip().removeprefix("```json").removesuffix("```").strip())
+    except (ValueError, TypeError):
+        return JSONResponse({"detail": "model returned an invalid plan"}, status_code=502)
+    if not isinstance(plan.get("command"), str) or not isinstance(plan.get("summary"), str):
+        return JSONResponse({"detail": "model returned an invalid plan"}, status_code=502)
+    return {"command": plan["command"], "summary": plan["summary"], "model": model}
+
+
 @app.post("/worker/heartbeat")
 async def worker_heartbeat(request: Request):
     if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
@@ -755,7 +780,31 @@ async def worker_events(request: Request, task_id: str):
     if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
     task = task_queue.TASKS.get(task_id)
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
-    return {"messages": list(task["messages"]), "permissions": list(task["permissions"]), "stopped": task["status"] == "stopped"}
+    permission = task["permissions"].popleft() if task["permissions"] else None
+    return {"messages": list(task["messages"]), "permission": permission, "stopped": task["status"] == "stopped"}
+
+
+@app.post("/worker/permission")
+async def worker_permission(request: Request):
+    if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    body = await request.json()
+    task = task_queue.TASKS.get(body.get("task_id"))
+    if not task: return JSONResponse({"detail": "not found"}, status_code=404)
+    task_queue.publish(task["id"], "permission_required", {"command": body.get("command", "")})
+    while task["status"] == "running":
+        if task["permissions"]:
+            return {"decision": task["permissions"].popleft()}
+        await asyncio.sleep(0.5)
+    return {"decision": "deny"}
+
+
+@app.post("/worker/event")
+async def worker_event(request: Request):
+    if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    body = await request.json()
+    if not task_queue.publish(body.get("task_id"), body.get("event"), body.get("data", {})):
+        return JSONResponse({"detail": "not found"}, status_code=404)
+    return {"ok": True}
 
 
 @app.post("/worker/done")

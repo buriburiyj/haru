@@ -401,11 +401,11 @@ export const deleteArtifact = (id: string) => api<{ ok: true }>("DELETE", `/arti
 export type ChatDoneExtras = { project_id: string | null; artifacts: ArtifactRef[] };
 
 // ---- background tasks ----
-export type PermissionMode = "default" | "acceptEdits" | "plan" | "auto" | "bypassPermissions" | "dontAsk";
+export type PermissionMode = "always_ask" | "auto_edit" | "plan" | "auto" | "skip" | "allow_all";
 export type Task = { id: string; status: "queued" | "running" | "done" | "failed" | "stopped" };
 export type TaskEvent = { id: number; event: string; data: Record<string, unknown>; time: number };
 /** POST /tasks */
-export const createTask = (content: string, mode: PermissionMode = "default", conversationId = "") =>
+export const createTask = (content: string, mode: PermissionMode = "auto", conversationId = "") =>
   api<Task>("POST", "/tasks", { content, mode, conversation_id: conversationId });
 /** POST /tasks/{id}/permission */
 export const decideTaskPermission = (id: string, decision: "allow" | "always" | "deny") =>

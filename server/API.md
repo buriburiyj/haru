@@ -113,8 +113,25 @@ Optional (defaults): `GROQ_MODEL` (openai/gpt-oss-20b), `GITHUB_OWNER` (buriburi
 2. The `GITHUB_TOKEN` used by the server needs **Actions: Read and write** on jun-files (done; verified live). If it is missing, Codex is skipped for 10 minutes after a failed attempt and NVIDIA answers.
 
 ## Background tasks and worker
-- `POST /tasks` `{content, mode, conversation_id}` creates a queued task. Supported permission modes: `default`, `acceptEdits`, `plan`, `auto`, `bypassPermissions`, `dontAsk`.
-- `GET /tasks/{id}/events` streams SSE events until completion.
+- `POST /tasks` `{content, mode, conversation_id}` creates a queued task. Modes: `always_ask` (매번 확인), `auto_edit` (허용된 로컬 파일 수정 자동), `plan` (계획만), `auto` (기본, 안전한 읽기 작업 자동·수정은 확인), `skip` (사전 허락 없는 행동 건너뜀), `allow_all` (Actions/Codespaces만; 로컬 워커에서는 실행 불가). 현재 워커는 분류된 읽기/일부 파일 명령만 실행하며, 분류되지 않은 명령은 건너뜁니다.
+- `GET /tasks/{id}/events` streams named SSE events until completion. Order for a successful task is `task`, `status`, `action`, `output`, `summary`, `done` (and `checkpoint` events may appear between action/output):
+```text
+event: task
+data: {"id":"abc123","content":"현재 폴더 파일 목록을 보고 README 첫 줄을 요약해줘","mode":"auto","conversation_id":"chat-1","status":"queued"}
+
+event: action
+data: {"command":"ls -la && head -n 1 README.md","model":"..."}
+
+event: output
+data: {"command":"ls -la && head -n 1 README.md","text":"README.md\\n# Haru"}
+
+event: summary
+data: {"text":"현재 폴더에는 README.md가 있고, 첫 줄은 Haru 프로젝트 제목입니다.","files":[]}
+
+event: done
+data: {"result":"현재 폴더에는 README.md가 있고, 첫 줄은 Haru 프로젝트 제목입니다.","error":""}
+```
+- `status`: `{status,worker,resume_after}`; `action`: `{command,model}`; `output`: `{command,text}`; `summary`: `{text,files}`; `checkpoint`: `{step,command,output,commit}`; `permission_required`: `{command}`; `skipped`: `{command?,reason}`; `error`: `{reason,exit_code?,output?}`. SSE `id` is a per-task increasing integer.
 - `POST /tasks/{id}/permission` `{decision:"allow"|"always"|"deny"}`, `POST /tasks/{id}/stop`, and `POST /tasks/{id}/message` `{content}` control a task.
-- Workers authenticate with `X-Worker-Token` and `WORKER_TOKEN`: `POST /worker/claim` `{worker_id}`, `POST /worker/heartbeat` `{task_id,worker_id,checkpoint}`, `GET /worker/events?task_id=...`, and `POST /worker/done` `{task_id,result?,error?}`. A worker lease expires after 120 seconds without heartbeat; checkpoints are returned on reassignment.
+- Workers authenticate with `X-Worker-Token` and `WORKER_TOKEN`: `POST /worker/claim` `{worker_id}`, `POST /worker/plan` `{task_id,entries}`, `POST /worker/heartbeat` `{task_id,worker_id,checkpoint}`, `GET /worker/events?task_id=...`, `POST /worker/permission` `{task_id,command}`, `POST /worker/event` `{task_id,event,data}`, and `POST /worker/done` `{task_id,result?,error?}`. A worker lease expires after 120 seconds without heartbeat; the last checkpoint is returned on reassignment.
 - `POST /telegram/webhook` validates `X-Telegram-Bot-Api-Secret-Token` against `TELEGRAM_WEBHOOK_SECRET` and only accepts the configured `TELEGRAM_CHAT_ID`. Configure `HARU_BOT_TOKEN` for notifications; webhook registration is intentionally a separate owner action.
