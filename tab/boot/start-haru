@@ -1,0 +1,31 @@
+#!/data/data/com.termux/files/usr/bin/sh
+set -eu
+
+WORKER_DIR="$HOME/haru-worker"
+ENV_FILE="$WORKER_DIR/worker.env"
+LOG_FILE="$WORKER_DIR/haru.log"
+
+termux-wake-lock
+
+if tmux has-session -t haru 2>/dev/null; then
+  exit 0
+fi
+
+tmux new-session -d -s haru "
+  while true; do
+    if [ ! -r '$ENV_FILE' ]; then
+      echo '\$(date): worker.env is missing' >> '$LOG_FILE'
+    else
+      set -a
+      . '$ENV_FILE'
+      set +a
+      if [ -z \"\${WORKER_TOKEN:-}\" ]; then
+        echo '\$(date): WORKER_TOKEN is empty; worker not started' >> '$LOG_FILE'
+      else
+        cd '$WORKER_DIR'
+        python worker/haru_worker.py >> '$LOG_FILE' 2>&1
+      fi
+    fi
+    sleep 30
+  done
+"
