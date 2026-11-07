@@ -69,6 +69,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [temp]);
 
+  // The server creates a conversation for a new Work request: as soon as its id is known the list shows it
+  const workChatId = thread.tasks[0]?.run.chatId;
+  useEffect(() => {
+    if (workChatId) void list.refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workChatId]);
+
   // "전부 허용" only works on isolated computers: fall back to "자동" when the running computer is not isolated
   const computer = thread.active?.run.computer ?? "box";
   useEffect(() => {
@@ -146,11 +153,13 @@ export default function App() {
   );
 
   // Sidebar list: the Work conversation (if any) on top with a spinning dot while it works; a saved chat that is streaming too
+  const workInList = !!workChatId && list.chats.some((c) => c.id === workChatId);
   const rows: ChatRow[] = [
-    ...(thread.tasks.length > 0
-      ? [{ id: WORK_ROW_ID, title: thread.tasks[0].prompt, when: relativeWhen(Date.now() / 1000), preview: "", updated: Date.now() / 1000, working: thread.working }]
+    // until the saved list contains the new conversation, show it from the task itself
+    ...(thread.tasks.length > 0 && !workInList
+      ? [{ id: workChatId ?? WORK_ROW_ID, title: thread.tasks[0].prompt, when: relativeWhen(Date.now() / 1000), preview: "", updated: Date.now() / 1000, working: thread.working }]
       : []),
-    ...list.chats.map((c) => (c.id === chat.chatId && chat.busy ? { ...c, working: true } : c)),
+    ...list.chats.map((c) => (c.id === chat.chatId && chat.busy ? { ...c, working: true } : c.id === workChatId ? { ...c, working: thread.working } : c)),
   ];
 
   const newChat = () => {
@@ -158,7 +167,8 @@ export default function App() {
     setWorkOpen(false);
   };
   const openChat = async (id: string) => {
-    if (id === WORK_ROW_ID) {
+    if (id === WORK_ROW_ID || (thread.tasks.length > 0 && id === workChatId)) {
+      // the Work conversation that is open right now: show its live progress
       chat.reset();
       setWorkOpen(true);
       setMode("work");
@@ -167,7 +177,9 @@ export default function App() {
     setWorkOpen(false);
     const d = await chat.open(id);
     const taskIds = d?.task_ids ?? [];
-    if (taskIds.length === 0) return;
+    // A conversation with messages shows each task where its placeholder message is (TaskSlot in ChatView).
+    // Only an older conversation that has tasks but no messages is shown as a Work view here.
+    if (!d || d.messages.length > 0 || taskIds.length === 0) return;
     // This conversation has Work tasks: show them as they ended (stored events, nothing is run again).
     const found = (await Promise.all(taskIds.map((tid) => getTask(tid).catch(() => null)))).filter((t): t is TaskDetail => t !== null);
     if (found.length === 0) return;
@@ -182,7 +194,7 @@ export default function App() {
     <div className="flex h-full bg-bg text-fg">
       <Sidebar
         chats={rows}
-        activeId={showWork ? WORK_ROW_ID : chat.chatId}
+        activeId={showWork ? (workChatId ?? WORK_ROW_ID) : chat.chatId}
         onOpenChat={(id) => void openChat(id)}
         listWarning={list.warning ? "대화 목록을 불러오지 못했습니다. 저장소에 연결할 수 없습니다." : undefined}
         onDeleteChats={(ids) => chat.removeChats(ids.filter((i) => i !== WORK_ROW_ID))}

@@ -11,6 +11,7 @@ import type { ArtifactData } from "./artifact/types";
 import TopBar from "./chat/TopBar";
 import UserMessage from "./chat/UserMessage";
 import AssistantMessage from "./chat/AssistantMessage";
+import TaskSlot from "./work/TaskSlot";
 import CopyToast from "./chat/CopyToast";
 
 export type ChatViewProps = {
@@ -55,7 +56,9 @@ export default function ChatView({ msgs, busy, notice, title, modelLabel, compos
         <div className="h-full overflow-y-auto">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6">
           {msgs.map((m, i) =>
-            m.role === "user" ? (
+            m.kind === "task" && m.taskId ? (
+              <TaskSlot key={i} taskId={m.taskId} />
+            ) : m.role === "user" ? (
               <UserMessage key={i} content={m.content} images={m.images} />
             ) : (
               <AssistantMessage

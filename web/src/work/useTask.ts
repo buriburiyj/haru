@@ -18,7 +18,7 @@ export function reduceTask(s: TaskState, e: TaskEvent): TaskState {
     case "reset":
       return INITIAL_TASK_STATE;
     case "meta":
-      return { ...s, run: { ...s.run, ...(e.computer ? { computer: e.computer } : {}), ...(e.mode ? { mode: e.mode } : {}) } };
+      return { ...s, run: { ...s.run, ...(e.computer ? { computer: e.computer } : {}), ...(e.mode ? { mode: e.mode } : {}), ...(e.chatId ? { chatId: e.chatId } : {}) } };
     case "state":
       return { ...s, run: { ...s.run, state: e.state } };
     case "todos":

@@ -55,7 +55,8 @@ function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean
     switch (event) {
       case "task": {
         const mode = FROM_SERVER[str(d.mode)];
-        emit({ type: "meta", ...(mode ? { mode } : {}), elapsed: 0 });
+        const chatId = str(d.chatId);
+        emit({ type: "meta", ...(mode ? { mode } : {}), ...(chatId ? { chatId } : {}), elapsed: 0 });
         emit({ type: "state", state: "working" });
         break;
       }
@@ -354,7 +355,10 @@ export function sseSource(opts: SseSourceOptions): TaskSource {
       emit({ type: "meta", mode: opts.mode, elapsed: 0 });
       emit({ type: "state", state: "working" });
       const taskId: Promise<string | null> = createTask(opts.prompt, TO_SERVER[opts.mode], opts.conversationId ?? "")
-        .then((t) => t.id)
+        .then((t) => {
+          if (t.chatId) emit({ type: "meta", chatId: t.chatId }); // the sidebar shows the new conversation right away
+          return t.id;
+        })
         .catch((err) => {
           map.failed("작업을 시작하지 못했습니다", explain(err));
           return null;

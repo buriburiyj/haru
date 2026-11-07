@@ -65,6 +65,8 @@ export type WorkSummary = {
 export type RunState = "working" | "done" | "failed" | "stopped";
 
 export type WorkRun = {
+  /** conversation id; known as soon as the server answered POST /tasks */
+  chatId?: string;
   computer: Computer;
   mode: PermissionMode;
   state: RunState;
@@ -106,7 +108,7 @@ export type PermissionAnswer = "once" | "always" | "deny";
 /** Events a task source pushes, in any order. `action` is an upsert by id (append when new). */
 export type TaskEvent =
   | { type: "reset" }
-  | { type: "meta"; computer?: Computer; mode?: PermissionMode; /** seconds already worked */ elapsed?: number }
+  | { type: "meta"; computer?: Computer; mode?: PermissionMode; /** seconds already worked */ elapsed?: number; /** the conversation this task belongs to (server creates one for a new Work request) */ chatId?: string }
   | { type: "state"; state: RunState }
   | { type: "todos"; todos: Todo[] }
   | { type: "action"; action: WorkAction }
