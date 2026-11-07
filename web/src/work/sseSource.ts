@@ -1,4 +1,4 @@
-import { createTask, decideTaskPermission, messageTask, stopTask, taskEvents, type PermissionMode as ServerMode } from "../api";
+import { createTask, decideTaskPermission, messageTask, rewindTask, setTaskMode, stopTask, taskEvents, type ActiveTask, type PermissionMode as ServerMode } from "../api";
 import type { Computer, PermissionAnswer, PermissionMode, TaskConnection, TaskEvent, TaskPermission, TaskSource, WorkAction, WorkSummary } from "./types";
 
 // Real TaskSource: POST /tasks, then GET /tasks/{id}/events (SSE). It turns the server's events (server/API.md,
@@ -27,10 +27,9 @@ const TERMINAL = new Set(["done", "failed", "stopped"]);
 
 type Json = Record<string, unknown>;
 const str = (v: unknown, fallback = "") => (v === undefined || v === null ? fallback : String(v));
-const looksLikeDiff = (t: string) => /^diff --git|^@@ |^\+\+\+ /m.test(t);
 
 /** Stateful translator: one server event in, zero or more TaskEvents out. */
-function makeMapper(emit: (e: TaskEvent) => void) {
+function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean } = { statusElapsed: true }) {
   let n = 0;
   const actions = new Map<string, WorkAction>();
   const skipped: { text: string; reason: string }[] = [];
@@ -66,7 +65,7 @@ function makeMapper(emit: (e: TaskEvent) => void) {
       }
       case "status": {
         const computer = COMPUTER[str(d.computer ?? d.worker).toLowerCase()];
-        const elapsed = typeof d.elapsed === "number" ? d.elapsed : undefined;
+        const elapsed = opts.statusElapsed && typeof d.elapsed === "number" ? d.elapsed : undefined;
         emit({ type: "meta", ...(computer ? { computer } : {}), ...(elapsed !== undefined ? { elapsed } : {}) });
         const s = str(d.status);
         if (s === "failed") emit({ type: "state", state: "failed" });
@@ -88,7 +87,7 @@ function makeMapper(emit: (e: TaskEvent) => void) {
       case "output": {
         const id = str(d.id);
         const text = str(d.text);
-        const detail = { kind: looksLikeDiff(text) ? ("diff" as const) : ("output" as const), text };
+        const detail = { kind: d.is_diff === true ? ("diff" as const) : ("output" as const), text };
         const old = actions.get(id);
         patch(id, { detail, status: old && (old.status === "failed" || old.status === "skipped") ? old.status : "done" }, str(d.command, "출력"));
         break;
@@ -176,6 +175,19 @@ function makeMapper(emit: (e: TaskEvent) => void) {
         emit({ type: "state", state: "failed" });
         break;
       }
+      case "mode_changed": {
+        const mode = FROM_SERVER[str(d.mode)];
+        if (mode) emit({ type: "meta", mode });
+        break;
+      }
+      case "rewind_requested": {
+        patch(`rewind-${str(d.id)}`, { label: "체크포인트로 되돌리는 중", status: "running" }, "체크포인트로 되돌리는 중");
+        break;
+      }
+      case "rewound": {
+        patch(`rewind-${str(d.id)}`, { label: "체크포인트로 되돌렸습니다", status: "done" }, "체크포인트로 되돌렸습니다");
+        break;
+      }
       case "stopped": {
         finishRunning("skipped", "멈췄습니다.");
         emit({ type: "state", state: "stopped" });
@@ -226,30 +238,10 @@ async function readSse(res: Response, onEvent: (event: string, data: Json, id: n
   }
 }
 
-/**
- * Reconnect after a dropped stream: GET /tasks/{id}/events?after=N with Last-Event-ID (server/API.md).
- * api.ts has no function for this yet (it only has taskEvents without `after`), so the three lines of base URL and
- * token handling are repeated here. Replace with the api.ts function once it exists.
- */
-async function reopenEvents(taskId: string, after: number, signal: AbortSignal): Promise<Response> {
-  const base = (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000";
-  let token = "";
-  try {
-    token = localStorage.getItem("haru_token") ?? "";
-  } catch {
-    /* ignore */
-  }
-  const res = await fetch(`${base}/tasks/${encodeURIComponent(taskId)}/events?after=${after}`, {
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "Last-Event-ID": String(after) },
-    signal,
-  });
-  if (!res.ok) throw Object.assign(new Error(`http ${res.status}`), { status: res.status });
-  return res;
-}
-
 function explain(err: unknown): string {
   const status = (err as { status?: number })?.status;
   if ((err as Error)?.message === "unauthorized" || status === 401) return "다시 로그인해 주세요.";
+  if (status === 409) return "작업이 이미 끝났거나 지금은 할 수 없는 상태입니다.";
   if (status === 502 || status === 503) return "서버가 지금 작업을 받을 수 없습니다. 잠시 뒤에 다시 시도해 주세요.";
   if (status) return `서버가 요청을 받지 못했습니다 (오류 ${status}).`;
   return "서버에 연결하지 못했습니다. 인터넷 연결을 확인해 주세요.";
@@ -259,78 +251,117 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export type SseSourceOptions = { prompt: string; mode: PermissionMode; conversationId?: string };
 
-/** Real source for Work mode: starts the task on the server and follows its events (reconnects up to 5 times). */
+/**
+ * Follows one task on the server. `taskId` resolves to the id (or null when it could not be created).
+ * Reconnects up to 5 times with taskEvents(id, after). Mode change and rewind go to the real endpoints.
+ */
+function connectTask(emit: (e: TaskEvent) => void, taskId: Promise<string | null>, map: ReturnType<typeof makeMapper>): TaskConnection {
+  const ctrl = new AbortController();
+
+  async function follow(id: string) {
+    let after = 0;
+    let tries = 0;
+    let finished = false;
+    while (!ctrl.signal.aborted && !finished) {
+      try {
+        const res = after > 0 ? await taskEvents(id, after, ctrl.signal) : await taskEvents(id, ctrl.signal);
+        tries = 0;
+        await readSse(res, (event, data, sid) => {
+          if (sid !== null) after = sid;
+          if (TERMINAL.has(event)) finished = true;
+          map.handle(event, data);
+        });
+        if (!finished) throw new Error("stream ended");
+      } catch (err) {
+        if (ctrl.signal.aborted) return;
+        const status = (err as { status?: number })?.status;
+        if (status === 401 || status === 403 || status === 404 || ++tries > 5) {
+          map.failed("서버와 연결이 끊겼습니다", `${explain(err)} 작업은 서버에서 계속될 수 있습니다.`, "working");
+          return;
+        }
+        await sleep(Math.min(8000, 1000 * 2 ** (tries - 1)));
+      }
+    }
+  }
+  void taskId.then((id) => (id ? follow(id) : undefined));
+
+  return {
+    stop() {
+      // the server answers with a `stopped` event; nothing is faked locally
+      void taskId.then(async (id) => {
+        if (id) await stopTask(id).catch(() => map.failed("멈추지 못했습니다", "서버에 연결할 수 없습니다.", "working"));
+      });
+    },
+    interject(text, id) {
+      map.addInterjection(id, text);
+      void taskId.then(async (tid) => {
+        if (tid) await messageTask(tid, text).catch(() => map.failed("끼어들기를 보내지 못했습니다", "작업이 끝났거나 서버에 연결할 수 없습니다.", "working"));
+      });
+    },
+    answerPermission(_requestId: string, answer: PermissionAnswer) {
+      void taskId.then(async (tid) => {
+        if (tid) await decideTaskPermission(tid, answer === "once" ? "allow" : answer).catch(() => map.failed("허락을 전하지 못했습니다", "서버에 연결할 수 없습니다.", "working"));
+      });
+    },
+    rewind(actionId) {
+      void taskId.then(async (tid) => {
+        if (!tid) return;
+        try {
+          const r = await rewindTask(tid, actionId);
+          if (!r.ok) map.failed("되돌리지 못했습니다", r.reason ?? "되돌릴 수 없는 행동입니다.", "working");
+          // on success the server sends rewind_requested, then rewound
+        } catch (err) {
+          map.failed("되돌리지 못했습니다", explain(err), "working");
+        }
+      });
+    },
+    setMode(mode) {
+      // the chip changes when the server answers with `mode_changed`
+      void taskId.then(async (tid) => {
+        if (!tid) return;
+        try {
+          await setTaskMode(tid, TO_SERVER[mode]);
+        } catch (err) {
+          map.failed("허락 모드를 바꾸지 못했습니다", (err as { detail?: string })?.detail || explain(err), "working");
+        }
+      });
+    },
+    close() {
+      ctrl.abort();
+    },
+  };
+}
+
+/** Real source for Work mode: starts the task on the server and follows its events. */
 export function sseSource(opts: SseSourceOptions): TaskSource {
   return {
     connect(emit): TaskConnection {
-      const ctrl = new AbortController();
       const map = makeMapper(emit);
       emit({ type: "meta", mode: opts.mode, elapsed: 0 });
       emit({ type: "state", state: "working" });
-
       const taskId: Promise<string | null> = createTask(opts.prompt, TO_SERVER[opts.mode], opts.conversationId ?? "")
         .then((t) => t.id)
         .catch((err) => {
           map.failed("작업을 시작하지 못했습니다", explain(err));
           return null;
         });
+      return connectTask(emit, taskId, map);
+    },
+  };
+}
 
-      async function follow(id: string) {
-        let after = 0;
-        let tries = 0;
-        let finished = false;
-        while (!ctrl.signal.aborted && !finished) {
-          try {
-            const res = after > 0 ? await reopenEvents(id, after, ctrl.signal) : await taskEvents(id, ctrl.signal);
-            tries = 0;
-            await readSse(res, (event, data, sid) => {
-              if (sid !== null) after = sid;
-              if (TERMINAL.has(event)) finished = true;
-              map.handle(event, data);
-            });
-            if (!finished) throw new Error("stream ended");
-          } catch (err) {
-            if (ctrl.signal.aborted) return;
-            const status = (err as { status?: number })?.status;
-            if (status === 401 || status === 403 || status === 404 || ++tries > 5) {
-              map.failed("서버와 연결이 끊겼습니다", `${explain(err)} 작업은 서버에서 계속될 수 있습니다.`, "working");
-              return;
-            }
-            await sleep(Math.min(8000, 1000 * 2 ** (tries - 1)));
-          }
-        }
-      }
-      void taskId.then((id) => (id ? follow(id) : undefined));
-
-      return {
-        stop() {
-          // the server answers with a `stopped` event; nothing is faked locally
-          void taskId.then(async (id) => {
-            if (id) await stopTask(id).catch(() => map.failed("멈추지 못했습니다", "서버에 연결할 수 없습니다.", "working"));
-          });
-        },
-        interject(text, id) {
-          map.addInterjection(id, text);
-          void taskId.then(async (tid) => {
-            if (tid) await messageTask(tid, text).catch(() => map.failed("끼어들기를 보내지 못했습니다", "작업이 끝났거나 서버에 연결할 수 없습니다.", "working"));
-          });
-        },
-        answerPermission(_requestId: string, answer: PermissionAnswer) {
-          void taskId.then(async (tid) => {
-            if (tid) await decideTaskPermission(tid, answer === "once" ? "allow" : answer).catch(() => map.failed("허락을 전하지 못했습니다", "서버에 연결할 수 없습니다.", "working"));
-          });
-        },
-        rewind() {
-          // POST /tasks/{id}/rewind is defined in API.md but not implemented on the server yet.
-        },
-        setMode(mode) {
-          // POST /tasks/{id}/mode is defined in API.md but not implemented on the server yet: only the chip changes.
-          emit({ type: "meta", mode });
-        },
-        close() {
-          ctrl.abort();
-        },
-      };
+/**
+ * Source for a task that is already running on the server (after a page refresh): GET /tasks?active=true gave `task`.
+ * The whole event list is replayed, but the clock comes from `task.elapsed`, not from the replayed status events.
+ */
+export function attachSource(task: ActiveTask): TaskSource {
+  return {
+    connect(emit): TaskConnection {
+      const map = makeMapper(emit, { statusElapsed: false });
+      const computer = COMPUTER[str(task.computer).toLowerCase()];
+      emit({ type: "meta", mode: FROM_SERVER[task.mode], ...(computer ? { computer } : {}), elapsed: task.elapsed });
+      emit({ type: "state", state: "working" });
+      return connectTask(emit, Promise.resolve(task.id), map);
     },
   };
 }

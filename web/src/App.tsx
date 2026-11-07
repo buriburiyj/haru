@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { logout } from "./api";
+import { listActiveTasks, logout } from "./api";
 import { useAttachments } from "./hooks/useAttachments";
 import { useAuth } from "./hooks/useAuth";
 import { useChat } from "./hooks/useChat";
@@ -13,7 +13,7 @@ import ChatView from "./components/ChatView";
 import LoginScreen from "./components/LoginScreen";
 import PermissionModeMenu from "./components/work/PermissionModeMenu";
 import WorkChatView from "./components/work/WorkChatView";
-import { sseSource } from "./work/sseSource";
+import { attachSource, sseSource } from "./work/sseSource";
 import { ISOLATED } from "./work/types";
 import { useTaskThread } from "./work/useTaskThread";
 import { relativeWhen, type ChatRow } from "./components/chat/dataTypes";
@@ -41,6 +41,22 @@ export default function App() {
   const [workOpen, setWorkOpen] = useState(false);
   // Work mode: each message sent starts a task on the server (POST /tasks + SSE). ?demo=work still uses the fake source.
   const thread = useTaskThread(useCallback(({ prompt, mode }) => sseSource({ prompt, mode }), []));
+
+  // After a refresh: follow the tasks that still run on the server (GET /tasks?active=true), once per page load
+  const attached = useRef(false);
+  useEffect(() => {
+    if (!authed || attached.current) return;
+    attached.current = true;
+    listActiveTasks()
+      .then((tasks) => {
+        if (tasks.length === 0) return;
+        tasks.forEach((t) => thread.attach(t.content, attachSource(t)));
+        setMode("work");
+        setWorkOpen(true);
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authed]);
 
   // Switching temporary chat on or off starts a fresh conversation (a saved chat never turns temporary half way).
   const firstTemp = useRef(true);

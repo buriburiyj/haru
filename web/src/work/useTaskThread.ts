@@ -44,12 +44,12 @@ export function useTaskThread(makeSource: (opts: { prompt: string; mode: Permiss
     return () => map.forEach((c) => c.close());
   }, []);
 
-  const start = useCallback(
-    (prompt: string, mode: PermissionMode) => {
+  const startWith = useCallback(
+    (prompt: string, source: TaskSource) => {
       const id = `task-${++counter.current}`;
       dispatch({ type: "add", id, prompt });
       clocks.current.set(id, { base: 0, at: Date.now(), frozen: false });
-      const c = makeSource({ prompt, mode }).connect((e) => {
+      const c = source.connect((e) => {
         if (e.type === "meta" && e.elapsed !== undefined) clocks.current.set(id, { base: e.elapsed, at: Date.now(), frozen: false });
         if (e.type === "state" && e.state !== "working") clocks.current.set(id, { base: elapsedOf(id), at: Date.now(), frozen: true });
         dispatch({ type: "event", id, event: e });
@@ -58,8 +58,11 @@ export function useTaskThread(makeSource: (opts: { prompt: string; mode: Permiss
       return id;
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [makeSource],
+    [],
   );
+  const start = useCallback((prompt: string, mode: PermissionMode) => startWith(prompt, makeSource({ prompt, mode })), [startWith, makeSource]);
+  /** Follow a task that already runs on the server (after a refresh). */
+  const attach = useCallback((prompt: string, source: TaskSource) => startWith(prompt, source), [startWith]);
 
   const tasks: TaskItem[] = raw.map((t) => ({ id: t.id, prompt: t.prompt, run: { ...t.run, elapsed: elapsedOf(t.id) }, files: t.files, permission: t.permission }));
   const active = tasks[tasks.length - 1] as TaskItem | undefined;
@@ -88,5 +91,5 @@ export function useTaskThread(makeSource: (opts: { prompt: string; mode: Permiss
   const rewind = useCallback((taskId: string, actionId: string) => conns.current.get(taskId)?.rewind(actionId), []);
   const setMode = useCallback((mode: PermissionMode) => activeId && conns.current.get(activeId)?.setMode(mode), [activeId]);
 
-  return { tasks, active, working: active?.run.state === "working", start, stop, interject, decide, rewind, setMode };
+  return { tasks, active, working: active?.run.state === "working", start, attach, stop, interject, decide, rewind, setMode };
 }
