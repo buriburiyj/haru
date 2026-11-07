@@ -5,6 +5,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import time
 from pathlib import Path
@@ -107,7 +108,7 @@ async def require_session(request: Request, call_next):
 # Added after require_session so CORS wraps it: 401 responses still carry CORS headers.
 app.add_middleware(
     CORSMiddleware, allow_origins=[ORIGIN], allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type", "X-Setup-Token", "X-Challenge-Id", "Authorization", "X-Worker-Token"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"], allow_headers=["Content-Type", "X-Setup-Token", "X-Challenge-Id", "Authorization", "X-Worker-Token", "Last-Event-ID"],
 )
 
 
@@ -683,21 +684,39 @@ async def task_create(request: Request):
 
 
 @app.get("/tasks/{task_id}/events")
-async def task_events(task_id: str):
+async def task_events(task_id: str, request: Request, after: int = 0):
     if task_id not in task_queue.TASKS:
         return JSONResponse({"detail": "not found"}, status_code=404)
+    try:
+        cursor_after = max(after, int(request.headers.get("last-event-id", "0") or 0))
+    except ValueError:
+        cursor_after = max(after, 0)
     async def stream():
-        cursor = 0
+        cursor = cursor_after
         while True:
             events = task_queue.EVENTS.get(task_id, [])
             while cursor < len(events):
                 item = events[cursor]
                 yield f"id: {item['id']}\nevent: {item['event']}\ndata: {json.dumps(item['data'], ensure_ascii=False)}\n\n"
-                cursor += 1
+                cursor = item["id"]
             if task_queue.TASKS[task_id]["status"] in ("done", "failed", "stopped"):
                 return
             await asyncio.sleep(0.5)
     return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+
+@app.get("/tasks")
+async def task_list(active: bool = True):
+    items = []
+    for task in task_queue.TASKS.values():
+        if active and task["status"] in ("done", "failed", "stopped"):
+            continue
+        items.append({"id": task["id"], "content": task["content"], "mode": task["mode"],
+                      "status": task["status"], "computer": task["computer"],
+                      "started_at": task["started_at"],
+                      "elapsed": int(time.time() - task["started_at"]) if task["started_at"] else 0,
+                      "last_event_id": len(task_queue.EVENTS[task["id"]])})
+    return {"tasks": items}
 
 
 @app.post("/tasks/{task_id}/permission")
@@ -720,7 +739,10 @@ async def task_stop(task_id: str):
     if not task:
         return JSONResponse({"detail": "not found"}, status_code=404)
     task.update(status="stopped")
-    task_queue.add_event(task_id, "stopped", {})
+    task_queue.add_event(task_id, "status", {"status": "stopped", "computer": task["computer"],
+                                               "started_at": task["started_at"],
+                                               "elapsed": int(time.time() - task["started_at"]) if task["started_at"] else 0})
+    task_queue.add_event(task_id, "stopped", {"id": task_id, "status": "stopped"})
     return {"ok": True}
 
 
@@ -730,9 +752,11 @@ async def task_message(task_id: str, request: Request):
     task = task_queue.TASKS.get(task_id)
     if not task:
         return JSONResponse({"detail": "not found"}, status_code=404)
-    task["messages"].append(str(body.get("content", "")))
-    task_queue.add_event(task_id, "message", {"content": str(body.get("content", ""))})
-    return {"ok": True}
+    interjection_id = secrets.token_hex(8)
+    message = {"id": interjection_id, "content": str(body.get("content", ""))}
+    task["messages"].append(message)
+    task_queue.add_event(task_id, "interjection", {**message, "status": "queued"})
+    return {"ok": True, "id": interjection_id}
 
 
 @app.post("/worker/claim")
@@ -750,7 +774,8 @@ async def worker_plan(request: Request):
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
     prompt = ("Plan one safe, read-only or workspace-local shell command to fulfill the task. "
               "Never read secrets or .env files. Never delete, send data externally, push, deploy, or pay. "
-              "Return only JSON with keys command and summary. The command runs inside the task workspace.\n\n"
+              "Return only JSON with keys label, command, and summary. label must be a short human-readable action name. "
+              "The command runs inside the task workspace.\n\n"
               f"Task: {task['content']}\nWorkspace entries: {json.dumps(body.get('entries', []), ensure_ascii=False)}")
     parts, model = [], None
     async for kind, value in router.route([{"role": "user", "content": prompt}], "auto"):
@@ -764,7 +789,8 @@ async def worker_plan(request: Request):
         return JSONResponse({"detail": "model returned an invalid plan"}, status_code=502)
     if not isinstance(plan.get("command"), str) or not isinstance(plan.get("summary"), str):
         return JSONResponse({"detail": "model returned an invalid plan"}, status_code=502)
-    return {"command": plan["command"], "summary": plan["summary"], "model": model}
+    return {"label": str(plan.get("label", "")), "command": plan["command"],
+            "summary": plan["summary"], "model": model}
 
 
 @app.post("/worker/heartbeat")
@@ -781,7 +807,8 @@ async def worker_events(request: Request, task_id: str):
     task = task_queue.TASKS.get(task_id)
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
     permission = task["permissions"].popleft() if task["permissions"] else None
-    return {"messages": list(task["messages"]), "permission": permission, "stopped": task["status"] == "stopped"}
+    messages = [task["messages"].popleft() for _ in range(len(task["messages"]))]
+    return {"messages": messages, "permission": permission, "stopped": task["status"] == "stopped"}
 
 
 @app.post("/worker/permission")
@@ -790,7 +817,13 @@ async def worker_permission(request: Request):
     body = await request.json()
     task = task_queue.TASKS.get(body.get("task_id"))
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
-    task_queue.publish(task["id"], "permission_required", {"command": body.get("command", "")})
+    command = str(body.get("command", ""))
+    lowered = command.lower()
+    kind = "delete" if re.search(r"\b(rm|rmdir|shred|unlink|truncate)\b|git\s+(clean|reset\s+--hard)|\bdelete\b", lowered) else "send" if re.search(r"\b(git\s+push|curl|wget|scp|rsync|sendmail|deploy|publish)\b", lowered) else "pay" if re.search(r"\b(pay|purchase|checkout|stripe|billing)\b", lowered) else "other"
+    action_id = str(body.get("action_id", ""))
+    task_queue.publish(task["id"], "permission_required", {"id": action_id, "action_id": action_id,
+                                                              "title": body.get("label", "이 행동을 허락할까요?"),
+                                                              "kind": kind, "command": command})
     while task["status"] == "running":
         if task["permissions"]:
             return {"decision": task["permissions"].popleft()}
@@ -813,7 +846,11 @@ async def worker_done(request: Request):
     body = await request.json()
     task = task_queue.TASKS.get(body.get("task_id"))
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
+    if task["status"] == "stopped":
+        return {"ok": True, "status": "stopped"}
     task.update(status="failed" if body.get("error") else "done")
+    todos = [{"id": "t1", "text": task["content"], "done": not bool(body.get("error"))}]
+    task_queue.add_event(task["id"], "todos", {"todos": todos})
     task_queue.add_event(task["id"], task["status"], {"result": body.get("result", ""), "error": body.get("error", "")})
     return {"ok": True}
 

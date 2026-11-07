@@ -146,6 +146,23 @@ class WorkerPolicyTest(unittest.TestCase):
             main.router.route = original
             os.environ.pop("WORKER_TOKEN", None)
 
+    def test_task_listing_replay_and_stop_terminal_event(self):
+        import asyncio
+        task = asyncio.run(main.task_queue.create("resume me", "auto", "c1"))
+        client = authed_client()
+        listed = client.get("/tasks?active=true").json()["tasks"]
+        self.assertTrue(any(item["id"] == task["id"] for item in listed))
+        stopped = client.post(f"/tasks/{task['id']}/stop")
+        self.assertEqual(stopped.status_code, 200)
+        self.assertEqual(main.task_queue.EVENTS[task["id"]][-1]["event"], "stopped")
+        replay = client.get(f"/tasks/{task['id']}/events?after=1")
+        self.assertEqual(replay.status_code, 200)
+        self.assertNotIn("event: task\n", replay.text)
+        self.assertIn("event: todos\n", replay.text)
+        header_replay = client.get(f"/tasks/{task['id']}/events", headers={"Last-Event-ID": "1"})
+        self.assertEqual(header_replay.status_code, 200)
+        self.assertIn("id: 2\nevent: todos", header_replay.text)
+
 
 class PasskeyFlowTest(unittest.TestCase):
     """Full register -> login flow with a software authenticator, no cookies involved."""

@@ -3,6 +3,7 @@ import asyncio
 import os
 import secrets
 import time
+import uuid
 from collections import deque
 
 TASKS = {}
@@ -24,6 +25,15 @@ def publish(task_id, kind, data):
     return add_event(task_id, kind, data)
 
 
+def action_event(task_id, command, label, status="running", **extra):
+    task = TASKS[task_id]
+    action_id = task.get("action_id") or uuid.uuid4().hex
+    task["action_id"] = action_id
+    add_event(task_id, "action", {"id": action_id, "label": label, "command": command,
+                                  "status": status, "outward": False, **extra})
+    return action_id
+
+
 def worker_authorized(token):
     expected = os.environ.get("WORKER_TOKEN", "")
     return bool(expected and secrets.compare_digest(token or "", expected))
@@ -38,10 +48,12 @@ async def create(content, mode, conversation_id):
                           "conversation_id": conversation_id, "status": "queued",
                           "created": time.time(), "worker": None, "heartbeat": 0,
                           "checkpoint": None, "messages": deque(), "permissions": deque(),
-                          "steps": [], "pending_permission": None, "resume_after": 0}
+                          "steps": [], "pending_permission": None, "resume_after": 0,
+                          "computer": None, "started_at": None, "action_id": None}
         EVENTS[task_id] = []
         add_event(task_id, "task", {"id": task_id, "content": content, "mode": mode,
                                     "conversation_id": conversation_id, "status": "queued"})
+        add_event(task_id, "todos", {"todos": [{"id": "t1", "text": content, "done": False}]})
     return TASKS[task_id]
 
 
@@ -52,8 +64,12 @@ async def claim(worker_id):
             stale = task["status"] == "running" and now - task["heartbeat"] > HEARTBEAT_TIMEOUT
             if task["status"] == "queued" or stale:
                 task.update(status="running", worker=worker_id, heartbeat=now)
+                task["computer"] = "actions" if "action" in worker_id.lower() else "codespaces" if "codespace" in worker_id.lower() else "tab" if "tab" in worker_id.lower() or "termux" in worker_id.lower() else "mac"
+                task["started_at"] = task["started_at"] or now
                 task["resume_after"] = task["checkpoint"].get("step", -1) + 1 if task["checkpoint"] else 0
                 add_event(task["id"], "status", {"status": "running", "worker": worker_id,
+                                                    "computer": task["computer"], "started_at": task["started_at"],
+                                                    "elapsed": int(now - task["started_at"]),
                                                     "resume_after": task["resume_after"]})
                 return {k: task[k] for k in ("id", "content", "mode", "conversation_id", "checkpoint", "resume_after")}
     return None

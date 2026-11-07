@@ -113,25 +113,32 @@ Optional (defaults): `GROQ_MODEL` (openai/gpt-oss-20b), `GITHUB_OWNER` (buriburi
 2. The `GITHUB_TOKEN` used by the server needs **Actions: Read and write** on jun-files (done; verified live). If it is missing, Codex is skipped for 10 minutes after a failed attempt and NVIDIA answers.
 
 ## Background tasks and worker
-- `POST /tasks` `{content, mode, conversation_id}` creates a queued task. Modes: `always_ask` (매번 확인), `auto_edit` (허용된 로컬 파일 수정 자동), `plan` (계획만), `auto` (기본, 안전한 읽기 작업 자동·수정은 확인), `skip` (사전 허락 없는 행동 건너뜀), `allow_all` (Actions/Codespaces만; 로컬 워커에서는 실행 불가). 현재 워커는 분류된 읽기/일부 파일 명령만 실행하며, 분류되지 않은 명령은 건너뜁니다.
-- `GET /tasks/{id}/events` streams named SSE events until completion. Order for a successful task is `task`, `status`, `action`, `output`, `summary`, `done` (and `checkpoint` events may appear between action/output):
-```text
-event: task
-data: {"id":"abc123","content":"현재 폴더 파일 목록을 보고 README 첫 줄을 요약해줘","mode":"auto","conversation_id":"chat-1","status":"queued"}
+- `POST /tasks` `{content, mode, conversation_id}` creates a queued task. Wire modes map to the screen modes: `always_ask` (ask), `auto_edit` (auto-edit), `plan`, `auto` (default), `skip` (quiet), `allow_all` (all). Local execution of `allow_all` is denied. Unknown commands are skipped; large deletion, external send/push/deploy, payment, and `.env` reads are blocked in every mode.
+- `GET /tasks?active=true` lists active tasks with `computer`, `started_at`, `elapsed`, and `last_event_id`. `GET /tasks/{id}/events?after=N` replays events with IDs greater than `N`; `Last-Event-ID: N` is also accepted. Event IDs increase per task and reconnecting after a refresh does not replay earlier events.
+- Event stream uses the names below; every event's JSON `data` has the shown shape. A normal completion is `task`, `todos`, `status`, `action`, `checkpoint`, `action`, `output`, `summary`, `todos`, `done` (optional events are omitted when not applicable).
 
-event: action
-data: {"command":"ls -la && head -n 1 README.md","model":"..."}
+| Event | Example JSON data |
+|---|---|
+| `task` | `{"id":"t-1","content":"현재 폴더 파일 목록을 보고 README 첫 줄을 요약해줘","mode":"auto","conversation_id":"chat-1","status":"queued"}` |
+| `todos` | `{"todos":[{"id":"t1","text":"README 첫 줄 요약","done":false}]}` |
+| `status` | `{"status":"running","worker":"mac","computer":"mac","started_at":1794042000.0,"elapsed":3,"resume_after":0}` |
+| `action` | `{"id":"act-1","label":"파일 목록 확인 및 README 첫 줄 읽기","command":"ls -la && head -n 1 README.md","status":"running","outward":false}` |
+| `checkpoint` | `{"action_id":"act-1","step":0,"command":"ls -la && head -n 1 README.md","output":"README.md\\n# Haru","commit":"abc123"}` |
+| `output` | `{"id":"act-1","command":"ls -la && head -n 1 README.md","text":"README.md\\n# Haru"}` |
+| `permission_required` | `{"id":"act-2","action_id":"act-2","title":"폴더를 만들까요?","kind":"other","command":"mkdir reports"}` |
+| `permission` | `{"decision":"allow","task_id":"t-1"}` |
+| `interjection` | `{"id":"ix-1","content":"다른 README도 확인해줘","status":"queued"}` |
+| `interjection_applied` | `{"id":"ix-1","status":"queued_for_next_action"}` |
+| `skipped` | `{"id":"act-3","command":"rm -rf build","reason":"항상 중지 대상 또는 .env 접근"}` |
+| `error` | `{"id":"act-4","command":"head README.md","reason":"command failed","exit_code":1,"output":"파일을 찾을 수 없습니다"}` |
+| `summary` | `{"text":"README 첫 줄은 Haru 프로젝트 제목입니다.","files":[{"path":"README.md","change":"modified"}],"skipped":[],"usage":[{"label":"Actions","value":"0분"}]}` |
+| `done` | `{"result":"README 첫 줄은 Haru 프로젝트 제목입니다.","error":""}` |
+| `failed` | `{"result":"","error":"model unavailable"}` |
+| `stopped` | `{"id":"t-1","status":"stopped"}` |
 
-event: output
-data: {"command":"ls -la && head -n 1 README.md","text":"README.md\\n# Haru"}
-
-event: summary
-data: {"text":"현재 폴더에는 README.md가 있고, 첫 줄은 Haru 프로젝트 제목입니다.","files":[]}
-
-event: done
-data: {"result":"현재 폴더에는 README.md가 있고, 첫 줄은 Haru 프로젝트 제목입니다.","error":""}
-```
-- `status`: `{status,worker,resume_after}`; `action`: `{command,model}`; `output`: `{command,text}`; `summary`: `{text,files}`; `checkpoint`: `{step,command,output,commit}`; `permission_required`: `{command}`; `skipped`: `{command?,reason}`; `error`: `{reason,exit_code?,output?}`. SSE `id` is a per-task increasing integer.
+- `action.id`는 대응하는 `output.id`, `skipped.id`, `error.id`와 같습니다. `action.label`은 화면에 보이는 이름입니다. `kind`는 서버가 `delete|send|pay|other` 중에서 분류합니다. 외부 전송이 허용된 미래 이벤트는 `action.outward:true`로 표시합니다. 현재 외부 전송은 차단됩니다.
+- `summary.files`의 형식은 `{path,change:"added"|"modified"|"deleted"}`이고 `usage`는 `{label,value}[]`입니다. 현재 로컬 워커는 무료 한도 값을 산출하지 않아 빈 배열을 보낼 수 있습니다.
+- 다음 라운드 형식만 정의: `POST /tasks/{id}/rewind` `{action_id}` 되돌리기, `POST /tasks/{id}/mode` `{mode}` 실행 중 모드 변경. 두 엔드포인트는 아직 구현되지 않았습니다.
 - `POST /tasks/{id}/permission` `{decision:"allow"|"always"|"deny"}`, `POST /tasks/{id}/stop`, and `POST /tasks/{id}/message` `{content}` control a task.
-- Workers authenticate with `X-Worker-Token` and `WORKER_TOKEN`: `POST /worker/claim` `{worker_id}`, `POST /worker/plan` `{task_id,entries}`, `POST /worker/heartbeat` `{task_id,worker_id,checkpoint}`, `GET /worker/events?task_id=...`, `POST /worker/permission` `{task_id,command}`, `POST /worker/event` `{task_id,event,data}`, and `POST /worker/done` `{task_id,result?,error?}`. A worker lease expires after 120 seconds without heartbeat; the last checkpoint is returned on reassignment.
+- Workers authenticate with `X-Worker-Token` and `WORKER_TOKEN`: `POST /worker/claim` `{worker_id}`, `POST /worker/plan` `{task_id,entries}`, `POST /worker/heartbeat` `{task_id,worker_id,checkpoint}`, `GET /worker/events?task_id=...`, `POST /worker/permission` `{task_id,action_id,label,command}`, `POST /worker/event` `{task_id,event,data}`, and `POST /worker/done` `{task_id,result?,error?}`. A worker lease expires after 120 seconds without heartbeat; the last checkpoint is returned on reassignment.
 - `POST /telegram/webhook` validates `X-Telegram-Bot-Api-Secret-Token` against `TELEGRAM_WEBHOOK_SECRET` and only accepts the configured `TELEGRAM_CHAT_ID`. Configure `HARU_BOT_TOKEN` for notifications; webhook registration is intentionally a separate owner action.
