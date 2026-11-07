@@ -29,6 +29,9 @@ import usage
 import storage
 import uploads
 import tasks as task_queue
+import notify
+
+notify.install(task_queue)
 
 log = logging.getLogger("uvicorn.error")
 
@@ -849,6 +852,8 @@ async def task_permission(task_id: str, request: Request):
     task = task_queue.TASKS.get(task_id)
     if not task:
         return JSONResponse({"detail": "not found"}, status_code=404)
+    if task_id not in notify._waiting:
+        return JSONResponse({"detail": "no pending permission"}, status_code=409)
     task["permissions"].append(decision)
     task_queue.add_event(task_id, "permission", {"decision": decision, "task_id": task_id})
     return {"ok": True}
@@ -993,13 +998,6 @@ async def telegram_webhook(request: Request):
     if not secret or not hmac.compare_digest(request.headers.get("x-telegram-bot-api-secret-token", ""), secret):
         return JSONResponse({"detail": "unauthorized"}, status_code=401)
     body = await request.json()
-    if str(body.get("message", {}).get("chat", {}).get("id", "")) != os.environ.get("TELEGRAM_CHAT_ID", ""):
-        return {"ok": True}
-    callback = body.get("callback_query")
-    if callback:
-        task_id, decision = str(callback.get("data", "")).split(":", 1)
-        task = task_queue.TASKS.get(task_id)
-        if task and decision in ("allow", "always", "deny"):
-            task["permissions"].append(decision)
-            task_queue.add_event(task_id, "permission", {"decision": decision})
+    if body.get("callback_query"):
+        await notify.handle_update(body, task_queue)
     return {"ok": True}
