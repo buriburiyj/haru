@@ -149,6 +149,9 @@ class WorkerPolicyTest(unittest.TestCase):
     def test_command_policy_blocks_danger_and_classifies_auto_actions(self):
         self.assertTrue(haru_worker.safe_command("ls -la && head -n 1 README.md"))
         self.assertEqual(haru_worker.command_class("ls -la && head -n 1 README.md"), "read")
+        fallback = "ls -la && head -1 README.md 2>/dev/null || echo 'No README.md found'"
+        self.assertTrue(haru_worker.safe_command(fallback))
+        self.assertEqual(haru_worker.command_class(fallback), "read")
         self.assertFalse(haru_worker.safe_command("cat ~/.env"))
         self.assertFalse(haru_worker.safe_command("rm -rf build"))
         self.assertFalse(haru_worker.safe_command("git push origin main"))

@@ -20,7 +20,7 @@ SOURCE = pathlib.Path(os.environ.get("HARU_SOURCE_DIR", os.getcwd())).resolve()
 MODES = {"always_ask", "auto_edit", "plan", "auto", "skip", "allow_all"}
 BLOCKED = re.compile(r"\b(?:rm|rmdir|shred|unlink|truncate|mkfs|dd|curl|wget|scp|sftp|rsync|nc|ncat|socat|pay|purchase|checkout)\b|git\s+(?:push|remote)|\b(?:deploy|sendmail|mail)\b|\s>\s*[/~]|\bfind\b[^\n]*-delete", re.I)
 DENIED_PATH = re.compile(r"(?:^|[\s/'\"])(?:\.env(?:\.[^\s/'\"]*)?|[^\s/'\"]*/\.env(?:\.[^\s/'\"]*)?|~/computer-use/\.env)(?:$|[\s/'\"])", re.I)
-READ_COMMANDS = {"ls", "head", "cat", "pwd", "find", "grep", "wc", "sort", "sleep"}
+READ_COMMANDS = {"ls", "head", "cat", "pwd", "find", "grep", "wc", "sort", "sleep", "echo"}
 EDIT_COMMANDS = {"mkdir", "touch", "cp", "mv", "tee"}
 
 
