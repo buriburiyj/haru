@@ -30,6 +30,7 @@ import storage
 import uploads
 import tasks as task_queue
 import notify
+import tg_chat
 
 notify.install(task_queue)
 
@@ -1000,4 +1001,6 @@ async def telegram_webhook(request: Request):
     body = await request.json()
     if body.get("callback_query"):
         await notify.handle_update(body, task_queue)
+    elif body.get("message"):
+        tg_chat.spawn(body)
     return {"ok": True}
