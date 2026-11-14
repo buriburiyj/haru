@@ -17,6 +17,7 @@ import webauthn
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
+import agent_loop
 import artifacts
 import codex
 import connector
@@ -895,6 +896,38 @@ async def worker_claim(request: Request):
     if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
     body = await request.json()
     return {"task": await task_queue.claim(str(body.get("worker_id", "worker")))}
+
+
+WORKER_MODEL_TIMEOUT = 150  # every /worker/* answer must be finished within 180 s (the worker waits that long)
+
+
+@app.post("/worker/next")
+async def worker_next(request: Request):
+    """Choose the NEXT action of a task from what happened so far (history sent by the worker): a shell command,
+    an answer written by the model, or done with the final summary. Uses the fast router path (Groq, then NVIDIA)."""
+    if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
+    body = await request.json()
+    task = task_queue.TASKS.get(body.get("task_id"))
+    if not task: return JSONResponse({"detail": "not found"}, status_code=404)
+    got_text = []
+
+    async def ask(prompt):
+        parts, model = [], None
+        async for kind, value in router.route([{"role": "user", "content": prompt}], "easy"):
+            if kind == "model": model = value
+            elif kind == "delta": parts.append(value)
+        if parts:
+            got_text.append(True)
+        return "".join(parts), model
+
+    try:
+        action, model, todos = await asyncio.wait_for(agent_loop.next_action(ask, task, body), WORKER_MODEL_TIMEOUT)
+    except asyncio.TimeoutError:
+        return JSONResponse({"detail": "model timeout"}, status_code=503)
+    if action is None:
+        return JSONResponse({"detail": "model unavailable" if not got_text else "model returned an invalid action"},
+                            status_code=503 if not got_text else 502)
+    return {**action, "todos": todos, "model": model}
 
 
 @app.post("/worker/plan")

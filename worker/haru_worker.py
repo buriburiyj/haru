@@ -22,6 +22,16 @@ BLOCKED = re.compile(r"\b(?:rm|rmdir|shred|unlink|truncate|mkfs|dd|curl|wget|scp
 DENIED_PATH = re.compile(r"(?:^|[\s/'\"])(?:\.env(?:\.[^\s/'\"]*)?|[^\s/'\"]*/\.env(?:\.[^\s/'\"]*)?|~/computer-use/\.env)(?:$|[\s/'\"])", re.I)
 READ_COMMANDS = {"ls", "head", "cat", "pwd", "find", "grep", "wc", "sort", "sleep", "echo"}
 EDIT_COMMANDS = {"mkdir", "touch", "cp", "mv", "tee"}
+ALLOWED_TEXT = "ls head cat pwd find grep wc sort sleep echo, git status/diff/log/show/add/commit, mkdir touch cp mv tee"
+MAX_STEPS = 15  # model decisions per task (command, answer, blocked and failed steps all count)
+COMMAND_TIMEOUT = int(os.environ.get("HARU_COMMAND_TIMEOUT", "120"))
+OUTPUT_FOR_MODEL = 1500  # characters of one output sent back to the model (the server clips again)
+# "allow_all" runs without asking, so it is honored only on isolated computers (Actions, Codespaces)
+ISOLATED = os.environ.get("HARU_ISOLATED") == "1" or any(w in WORKER_ID.lower() for w in ("action", "codespace"))
+
+
+class Restart(Exception):
+    """A rewind was applied while a step ran: start the task over from the rewound state."""
 
 
 def api(path, body=None, method="POST", timeout=30):
@@ -55,16 +65,26 @@ def apply_messages(task, messages):
         publish(task["id"], "interjection_applied", {"id": message["id"], "status": "queued_for_next_action"})
 
 
-def safe_command(command):
+def block_reason(command):
+    """Why the static safety rules refuse this command (a sentence the model can act on), or None when it is allowed."""
     try:
         tokens = shlex.split(command)
     except ValueError:
-        return False
-    if DENIED_PATH.search(command) or BLOCKED.search(command) or any(".." in token for token in tokens):
-        return False
+        return "따옴표가 맞지 않아 명령을 해석할 수 없습니다. 따옴표를 짝 맞춰서 다시 쓰세요"
+    if DENIED_PATH.search(command):
+        return ".env 파일 접근은 항상 차단됩니다"
+    hit = BLOCKED.search(command)
+    if hit:
+        return f"차단된 명령입니다 ({hit.group(0).strip()}): 삭제, 외부 전송, push, 배포, 결제는 하지 않습니다"
+    if any(".." in token for token in tokens):
+        return "상위 폴더(..)는 쓸 수 없습니다. 작업 폴더 안의 상대경로만 쓰세요"
     if any(token.startswith(("/", "~")) or re.search(r"=(?:/|~)", token) for token in tokens[1:]):
-        return False
-    return True
+        return "절대경로(/ 또는 ~)는 쓸 수 없습니다. 작업 폴더 안의 상대경로만 쓰세요"
+    return None
+
+
+def safe_command(command):
+    return block_reason(command) is None
 
 
 def mutating_command(command):
@@ -85,22 +105,40 @@ def command_class(command):
     return "unknown"
 
 
-def permission(task, command, action_id, label):
+def check(task, command, action_id, label):
+    """(allowed, reason). The reason is what the model is told and what the skipped event shows."""
     mode = task["mode"]
-    if not safe_command(command) or command_class(command) == "unknown" or mode in ("plan", "skip", "allow_all"):
-        return False
+    why = block_reason(command)
+    if why:
+        return False, why  # always, in every mode (BLOCKED commands and .env)
     classification = command_class(command)
+    if mode == "allow_all":
+        if ISOLATED:
+            return True, ""  # no permission asked; only the safety rules above apply
+        return False, "전부 허용 모드는 격리된 컴퓨터(GitHub Actions, Codespaces)에서만 실행됩니다"
+    if mode == "plan":
+        return False, "계획 모드에서는 명령을 실행하지 않습니다"
+    if classification == "unknown":
+        try:
+            first = (shlex.split(re.split(r"&&|\|\||[|;]", command)[0])[:1] or ["?"])[0]
+        except ValueError:
+            first = "?"
+        return False, f"허용 목록 밖 명령입니다 ({first}). 허용: {ALLOWED_TEXT}"
+    if mode == "skip":
+        return False, "묻지 않음 모드에서는 미리 허락하지 않은 행동을 건너뜁니다"
     if mode == "auto_edit" and classification in ("read", "edit"):
-        return True
+        return True, ""
     if mode == "auto" and classification == "read":
-        return True
-    if mode == "auto":
-        decision = api("/worker/permission", {"task_id": task["id"], "action_id": action_id,
-                                               "label": label, "command": command}).get("decision")
-        return decision in ("allow", "always")
+        return True, ""
     decision = api("/worker/permission", {"task_id": task["id"], "action_id": action_id,
                                            "label": label, "command": command}).get("decision")
-    return decision in ("allow", "always")
+    if decision in ("allow", "always"):
+        return True, ""
+    return False, "허락하지 않았거나 허락을 받지 못했습니다"
+
+
+def permission(task, command, action_id, label):
+    return check(task, command, action_id, label)[0]
 
 
 def seed_workspace(work):
@@ -119,9 +157,81 @@ def seed_workspace(work):
                 shutil.copy2(item, target)
 
 
+def clip(text, limit=OUTPUT_FOR_MODEL):
+    text = str(text or "")
+    if len(text) <= limit:
+        return text
+    head = int(limit * 0.6)
+    return text[:head] + "\n…(중략)…\n" + text[-(limit - head):]
+
+
+def poll(task, work):
+    """Between steps (and while a command runs): stop, rewind and extra requests from the user."""
+    state = api("/worker/events?task_id=" + task["id"], method="GET")
+    task["mode"] = state.get("mode", task["mode"])
+    if state.get("stopped"):
+        raise RuntimeError("task stopped")
+    if state.get("controls"):
+        apply_controls(task, state["controls"], work)
+        raise Restart()
+    apply_messages(task, state.get("messages", []))
+
+
+def run_command(task, work, command):
+    """Runs one command in the workspace. Returns (output, returncode). While it runs, checks for stop / rewind /
+    extra requests once a second; a command that ends sooner returns right away."""
+    process = subprocess.Popen(command, cwd=work, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    started = last_poll = time.time()
+    while True:
+        try:
+            output, _ = process.communicate(timeout=0.2)
+            return (output or "")[-20000:], process.returncode
+        except subprocess.TimeoutExpired:
+            pass
+        now = time.time()
+        if now - last_poll >= 1:
+            last_poll = now
+            try:
+                poll(task, work)
+            except BaseException:
+                process.terminate()
+                process.communicate()
+                raise
+        if now - started > COMMAND_TIMEOUT:
+            process.terminate()
+            output, _ = process.communicate()
+            return (output or "")[-20000:] + f"\n(시간 초과: {COMMAND_TIMEOUT}초 안에 끝나지 않아 멈췄습니다)", 124
+
+
+def git(work, *args, check=True):
+    return subprocess.run(["git", "-c", "user.name=Haru Worker", "-c", "user.email=worker@localhost", *args], cwd=work, check=check,
+                          stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+
+
+def changed_files(work, baseline):
+    """Files that differ from the state at the start of the task: [{path, change}]."""
+    try:
+        git(work, "add", "-A")
+        out = git(work, "diff", "--name-status", baseline, "--cached").stdout
+        names = {"A": "added", "M": "modified", "D": "deleted"}
+        files = []
+        for line in out.splitlines():
+            parts = line.split("\t")
+            if len(parts) >= 2 and parts[0][:1] in names:
+                files.append({"path": parts[-1], "change": names[parts[0][:1]]})
+        return files[:50]
+    except Exception:
+        return []
+
+
 def run_task(task):
+    """The loop: ask the model for the next action, run it, send back the output, repeat until it says "done"
+    (or MAX_STEPS). A blocked or failed step is reported to the model, never the end of the task."""
     if task["mode"] not in MODES:
         raise ValueError("unsupported permission mode")
+    task["_restarts"] = task.get("_restarts", 0) + 1
+    if task["_restarts"] > 5:
+        raise RuntimeError("too many rewinds")
     work = ROOT / task["id"]
     seed_workspace(work)
     (work / ".git").exists() or subprocess.run(["git", "init", "-q", str(work)], check=True)
@@ -140,86 +250,88 @@ def run_task(task):
         if not initial_state.get("controls"):
             raise RuntimeError("rewind request is missing")
         return "마지막 체크포인트로 되돌렸습니다."
-    entries = [p.name for p in work.iterdir() if p.name not in (".git", ".env") and not p.name.startswith(".env.")]
     if DENIED_PATH.search(task["content"]):
         action_id = secrets.token_hex(8)
         publish(task["id"], "action", {"id": action_id, "label": "요청 보안 검사", "command": "요청 검증", "status": "running", "outward": False})
         publish(task["id"], "skipped", {"id": action_id, "command": "요청 검증", "reason": ".env 접근 요청은 항상 차단됩니다"})
         return "건너뜀: .env 접근은 차단되었습니다."
-    plan = api("/worker/plan", {"task_id": task["id"], "entries": entries}, timeout=180)
-    command, summary = plan["command"], plan["summary"]
-    label = plan.get("label") or ("명령 실행: " + command[:72])
-    task_queue_checkpoint = task.get("checkpoint") or {}
-    if not task_queue_checkpoint or task_queue_checkpoint.get("step", -1) < 0:
-        todos = plan.get("todos") or [task["content"]]
-        publish(task["id"], "todos", {"todos": [{"id": f"t{i + 1}", "text": text, "done": False}
-                                                    for i, text in enumerate(todos)]})
-    initial_state = api("/worker/events?task_id=" + task["id"], method="GET")
-    task["mode"] = initial_state.get("mode", task["mode"])
-    if initial_state.get("stopped"):
-        raise RuntimeError("task stopped")
-    if initial_state.get("controls"):
-        apply_controls(task, initial_state["controls"], work)
+
+    # the starting state, to list the changed files at the end
+    try:
+        if git(work, "rev-parse", "--verify", "-q", "HEAD", check=False).returncode != 0:
+            git(work, "add", "-A")
+            git(work, "commit", "--allow-empty", "-m", "baseline")
+        baseline = git(work, "rev-parse", "HEAD").stdout.strip()
+    except Exception:
+        baseline = ""
+
+    history, blocked, skipped_list = [], {}, []
+    checkpoint = task.get("checkpoint") or {}
+    if checkpoint.get("command"):  # taken over from a worker that was lost: tell the model what it did last
+        history.append({"kind": "command", "label": "이전 일꾼이 실행한 마지막 명령", "command": checkpoint["command"],
+                        "output": clip(checkpoint.get("output", ""))})
+    n_checkpoints = int(checkpoint.get("step", -1)) + 1 if checkpoint else 0
+    try:
+        while True:
+            poll(task, work)
+            entries = [p.name for p in work.iterdir() if p.name not in (".git", ".env") and not p.name.startswith(".env.")]
+            force = len(history) >= MAX_STEPS
+            resp = api("/worker/next", {"task_id": task["id"], "content": task["content"], "entries": entries,
+                                         "history": history, "force_done": force}, timeout=180)
+            if resp.get("todos"):
+                publish(task["id"], "todos", {"todos": resp["todos"]})
+            kind = resp.get("action")
+            if kind == "done" or force:
+                summary = str(resp.get("summary") or resp.get("text") or "작업을 마쳤습니다.")
+                if force:
+                    summary = f"※ 최대 {MAX_STEPS}단계에 도달해 중간에 멈췄습니다. " + summary
+                break
+            action_id = secrets.token_hex(8)
+            if kind == "answer":
+                text = str(resp.get("text") or "")
+                publish(task["id"], "action", {"id": action_id, "label": "답변 정리", "command": "(모델이 글로 답함)", "status": "running", "outward": False, "model": resp.get("model")})
+                publish(task["id"], "action", {"id": action_id, "label": "답변 정리", "command": "(모델이 글로 답함)", "status": "done", "outward": False})
+                publish(task["id"], "output", {"id": action_id, "command": "(모델이 글로 답함)", "text": text, "is_diff": False})
+                history.append({"kind": "answer", "text": text})
+                continue
+            if kind != "command" or not resp.get("command"):
+                raise RuntimeError("model returned an invalid action")
+            command = resp["command"]
+            label = resp.get("label") or ("명령 실행: " + command[:72])
+            publish(task["id"], "action", {"id": action_id, "label": label, "command": command, "status": "running", "outward": False, "model": resp.get("model")})
+            if blocked.get(command, 0) >= 2:
+                allowed, reason = False, "같은 명령이 이미 2번 막혔습니다. 다른 방법을 쓰세요"
+            else:
+                allowed, reason = check(task, command, action_id, label)
+            if not allowed:
+                blocked[command] = blocked.get(command, 0) + 1
+                publish(task["id"], "skipped", {"id": action_id, "command": command, "reason": reason})
+                print(f"[{task['id'][:8]}] 건너뜀: {command[:100]!r} -> {reason}", flush=True)
+                skipped_list.append({"text": command, "reason": reason})
+                history.append({"kind": "skipped", "label": label, "command": command, "reason": reason + (" (같은 명령이 2번 막혔습니다: 반드시 다른 방법을 쓰세요)" if blocked[command] >= 2 else "")})
+                continue
+            api("/worker/heartbeat", {"task_id": task["id"], "worker_id": WORKER_ID,
+                                       "checkpoint": {"action_id": action_id, "step": n_checkpoints - 1, "command": command, "output": ""}})
+            output, code = run_command(task, work, command)
+            if code:
+                publish(task["id"], "error", {"id": action_id, "command": command, "reason": "command failed", "exit_code": code, "output": output})
+                print(f"[{task['id'][:8]}] 실패({code}): {command[:100]!r}", flush=True)
+                history.append({"kind": "error", "label": label, "command": command, "output": clip(output), "exit_code": code, "reason": "명령이 실패했습니다"})
+                continue
+            git(work, "add", "-A")
+            git(work, "commit", "--allow-empty", "-m", "checkpoint")
+            checkpoint = {"action_id": action_id, "step": n_checkpoints, "command": command, "output": output,
+                          "commit": git(work, "rev-parse", "HEAD").stdout.strip()}
+            n_checkpoints += 1
+            task["checkpoint"] = checkpoint
+            api("/worker/heartbeat", {"task_id": task["id"], "worker_id": WORKER_ID, "checkpoint": checkpoint})
+            publish(task["id"], "action", {"id": action_id, "label": label, "command": command, "status": "done", "outward": False, "checkpoint": True})
+            publish(task["id"], "output", {"id": action_id, "command": command, "text": output,
+                                              "is_diff": bool(re.search(r"(?:^|\n)(?:diff --git |@@ )", output))})
+            history.append({"kind": "command", "label": label, "command": command, "output": clip(output)})
+    except Restart:
         return run_task(task)
-    apply_messages(task, initial_state.get("messages", []))
-    task_queue_checkpoint = task.get("checkpoint") or {}
-    action_id = (task_queue_checkpoint.get("action_id")
-                 if task.get("_action_count", 0) == 0 and task_queue_checkpoint.get("command") == command
-                 else None) or secrets.token_hex(8)
-    publish(task["id"], "action", {"id": action_id, "label": label, "command": command,
-                                    "status": "running", "outward": False})
-    if not permission(task, command, action_id, label):
-        publish(task["id"], "skipped", {"id": action_id, "command": command, "reason": "실행 허락을 받지 못했거나 안전 정책으로 건너뛰었습니다"})
-        return "건너뜀: 실행 허락을 받지 못했습니다."
-    task["_action_count"] = task.get("_action_count", 0) + 1
-    if task["_action_count"] > 10:
-        raise RuntimeError("action limit reached")
-    interjected = bool(initial_state.get("messages"))
-    if task_queue_checkpoint.get("command") == command and task_queue_checkpoint.get("output"):
-        output = task_queue_checkpoint["output"]
-    else:
-        api("/worker/heartbeat", {"task_id": task["id"], "worker_id": WORKER_ID,
-             "checkpoint": {"action_id": action_id, "step": -1, "command": command, "output": ""}})
-        publish(task["id"], "action", {"id": action_id, "label": label, "command": command,
-                                         "status": "running", "outward": False, "model": plan.get("model")})
-        process = subprocess.Popen(command, cwd=work, shell=True, text=True,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-        while process.poll() is None:
-            time.sleep(1)
-            state = api("/worker/events?task_id=" + task["id"], method="GET")
-            task["mode"] = state.get("mode", task["mode"])
-            if state.get("stopped"):
-                process.terminate()
-                raise RuntimeError("task stopped")
-            if state.get("controls"):
-                process.terminate()
-                process.communicate()
-                apply_controls(task, state["controls"], work)
-                return run_task(task)
-            if state.get("messages"):
-                apply_messages(task, state["messages"])
-                interjected = True
-        output, _ = process.communicate()
-        output = output[-20000:]
-        if process.returncode:
-            publish(task["id"], "error", {"id": action_id, "command": command, "reason": "command failed", "exit_code": process.returncode, "output": output})
-            raise RuntimeError("command failed")
-        subprocess.run(["git", "add", "-A"], cwd=work, check=True)
-        subprocess.run(["git", "-c", "user.name=Haru Worker", "-c", "user.email=worker@localhost",
-            "commit", "--allow-empty", "-m", "checkpoint"], cwd=work,
-            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-        checkpoint = {"action_id": action_id, "step": 0, "command": command, "output": output,
-                      "commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=work, text=True).strip()}
-        task["checkpoint"] = checkpoint
-        api("/worker/heartbeat", {"task_id": task["id"], "worker_id": WORKER_ID, "checkpoint": checkpoint})
-    publish(task["id"], "action", {"id": action_id, "label": label, "command": command,
-                                     "status": "done", "outward": False,
-                                     "checkpoint": bool(task.get("checkpoint"))})
-    publish(task["id"], "output", {"id": action_id, "command": command, "text": output,
-                                      "is_diff": bool(re.search(r"(?:^|\n)(?:diff --git |@@ )", output))})
-    if interjected:
-        return run_task(task)
-    publish(task["id"], "summary", {"text": summary, "files": [], "skipped": [], "usage": []})
+    publish(task["id"], "summary", {"text": summary, "files": changed_files(work, baseline) if baseline else [], "skipped": skipped_list, "usage": []})
     return summary
 
 
