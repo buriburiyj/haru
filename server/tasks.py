@@ -11,6 +11,40 @@ EVENTS = {}
 LOCK = asyncio.Lock()
 HEARTBEAT_TIMEOUT = 120
 PERMISSION_MODES = {"always_ask", "auto_edit", "plan", "auto", "skip", "allow_all"}
+WORKERS = {}  # worker_id -> {"seen": epoch of the last claim poll or heartbeat, "computer": ...}
+WORKER_ONLINE_WINDOW = 60  # idle workers poll /worker/claim every 10 s; running ones send a heartbeat every 30 s
+
+
+def computer_of(worker_id):
+    w = str(worker_id).lower()
+    return "actions" if "action" in w else "codespaces" if "codespace" in w else "tab" if "tab" in w or "termux" in w else "mac"
+
+
+def touch_worker(worker_id, now=None):
+    WORKERS[str(worker_id)] = {"seen": now or time.time(), "computer": computer_of(worker_id)}
+
+
+def workers_online(now=None):
+    """Workers seen recently (claim poll or heartbeat). Empty list = nothing can run a queued task."""
+    now = now or time.time()
+    return [{"id": wid, "computer": w["computer"], "last_seen": w["seen"]}
+            for wid, w in WORKERS.items() if now - w["seen"] <= WORKER_ONLINE_WINDOW]
+
+
+def timing(task, now=None):
+    """Clock facts of a task, all UTC epoch seconds, so every device shows the same elapsed time.
+    `started_at` is when a worker took it (None while queued); the elapsed time counts from it, or from `created_at`
+    while the task is still queued. A finished task is fixed at finished_at - start."""
+    now = now or time.time()
+    begin = task.get("started_at") or task["created"]
+    end = task.get("finished_at") or now
+    return {"created_at": task["created"], "started_at": task.get("started_at"),
+            "finished_at": task.get("finished_at"), "now": now, "elapsed": max(0, int(end - begin))}
+
+
+def mark_finished(task):
+    task["finished_at"] = time.time()
+    return task["finished_at"]
 
 
 def add_event(task_id, kind, data):
@@ -52,11 +86,13 @@ async def create(content, mode, conversation_id):
                           "todos": [{"id": "t1", "text": content, "done": False}],
                           "rewind_only": False,
                           "steps": [], "pending_permission": None, "resume_after": 0,
-                          "computer": None, "started_at": None, "action_id": None}
+                          "computer": None, "started_at": None, "finished_at": None, "action_id": None}
         EVENTS[task_id] = []
         add_event(task_id, "task", {"id": task_id, "content": content, "mode": mode,
                                     "conversation_id": conversation_id, "chatId": conversation_id,
-                                    "chat_mode": "work", "status": "queued"})
+                                    "chat_mode": "work", "status": "queued",
+                                    "created_at": TASKS[task_id]["created"], "now": time.time(),
+                                    "workers_online": len(workers_online())})
         add_event(task_id, "todos", {"todos": [{"id": "t1", "text": content, "done": False}]})
     return TASKS[task_id]
 
@@ -64,15 +100,18 @@ async def create(content, mode, conversation_id):
 async def claim(worker_id):
     async with LOCK:
         now = time.time()
+        touch_worker(worker_id, now)  # an idle worker is "connected" as long as it keeps polling here
         for task in TASKS.values():
             stale = task["status"] == "running" and now - task["heartbeat"] > HEARTBEAT_TIMEOUT
             if task["status"] == "queued" or stale:
                 task.update(status="running", worker=worker_id, heartbeat=now)
-                task["computer"] = "actions" if "action" in worker_id.lower() else "codespaces" if "codespace" in worker_id.lower() else "tab" if "tab" in worker_id.lower() or "termux" in worker_id.lower() else "mac"
+                task["computer"] = computer_of(worker_id)
                 task["started_at"] = task["started_at"] or now
+                task["finished_at"] = None  # running again (first run, retry after a lost worker, or a rewind)
                 task["resume_after"] = task["checkpoint"].get("step", -1) + 1 if task["checkpoint"] else 0
                 add_event(task["id"], "status", {"status": "running", "worker": worker_id,
                                                     "computer": task["computer"], "started_at": task["started_at"],
+                                                    "created_at": task["created"], "now": now,
                                                     "elapsed": int(now - task["started_at"]),
                                                     "resume_after": task["resume_after"]})
                 return {k: task[k] for k in ("id", "content", "mode", "conversation_id", "checkpoint", "resume_after", "rewind_only")}
@@ -85,6 +124,7 @@ async def heartbeat(task_id, worker_id, checkpoint=None):
         if not task or task["worker"] != worker_id or task["status"] != "running":
             return False
         task["heartbeat"] = time.time()
+        touch_worker(worker_id, task["heartbeat"])
         if checkpoint is not None:
             task["checkpoint"] = checkpoint
             add_event(task_id, "checkpoint", checkpoint)

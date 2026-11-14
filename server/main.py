@@ -781,10 +781,16 @@ async def task_list(active: bool = True):
             continue
         items.append({"id": task["id"], "content": task["content"], "mode": task["mode"],
                       "status": task["status"], "computer": task["computer"],
-                      "started_at": task["started_at"],
-                      "elapsed": int(time.time() - task["started_at"]) if task["started_at"] else 0,
+                      **task_queue.timing(task),
                       "last_event_id": len(task_queue.EVENTS[task["id"]])})
-    return {"tasks": items}
+    return {"tasks": items, "workers_online": len(task_queue.workers_online())}
+
+
+@app.get("/workers")
+async def workers():
+    """Which computers can take a queued task right now (seen via claim polls or heartbeats in the last 60 s)."""
+    online = task_queue.workers_online()
+    return {"workers": online, "online": len(online), "window": task_queue.WORKER_ONLINE_WINDOW, "now": time.time()}
 
 
 @app.get("/tasks/{task_id}")
@@ -794,8 +800,8 @@ async def task_detail(task_id: str):
         return JSONResponse({"detail": "not found"}, status_code=404)
     return {"id": task["id"], "content": task["content"], "mode": task["mode"],
             "conversation_id": task["conversation_id"], "status": task["status"],
-            "computer": task["computer"], "started_at": task["started_at"],
-            "elapsed": int(time.time() - task["started_at"]) if task["started_at"] else 0,
+            "computer": task["computer"], **task_queue.timing(task),
+            "workers_online": len(task_queue.workers_online()),
             "last_event_id": len(task_queue.EVENTS[task_id]), "events": list(task_queue.EVENTS[task_id])}
 
 
@@ -820,9 +826,8 @@ async def task_rewind(task_id: str, request: Request):
     task["controls"].append({"kind": "rewind", "action_id": action_id, "checkpoint": checkpoint})
     task_queue.add_event(task_id, "rewind_requested", {"id": action_id, "checkpoint": checkpoint})
     if task["status"] == "done":
-        task.update(status="queued", worker=None, heartbeat=0, rewind_only=True)
-        task_queue.add_event(task_id, "status", {"status": "queued", "computer": task["computer"],
-                                                  "started_at": task["started_at"], "elapsed": int(time.time() - task["started_at"]) if task["started_at"] else 0})
+        task.update(status="queued", worker=None, heartbeat=0, rewind_only=True, finished_at=None)
+        task_queue.add_event(task_id, "status", {"status": "queued", "computer": task["computer"], **task_queue.timing(task)})
     return {"ok": True, "queued": True, "action_id": action_id}
 
 
@@ -866,10 +871,9 @@ async def task_stop(task_id: str):
     if not task:
         return JSONResponse({"detail": "not found"}, status_code=404)
     task.update(status="stopped")
-    task_queue.add_event(task_id, "status", {"status": "stopped", "computer": task["computer"],
-                                               "started_at": task["started_at"],
-                                               "elapsed": int(time.time() - task["started_at"]) if task["started_at"] else 0})
-    task_queue.add_event(task_id, "stopped", {"id": task_id, "status": "stopped"})
+    task_queue.mark_finished(task)
+    task_queue.add_event(task_id, "status", {"status": "stopped", "computer": task["computer"], **task_queue.timing(task)})
+    task_queue.add_event(task_id, "stopped", {"id": task_id, "status": "stopped", "finished_at": task["finished_at"]})
     return {"ok": True}
 
 
@@ -987,9 +991,11 @@ async def worker_done(request: Request):
     if task["status"] == "stopped":
         return {"ok": True, "status": "stopped"}
     task.update(status="failed" if body.get("error") else "done", rewind_only=False)
+    task_queue.mark_finished(task)
     todos = [{**todo, "done": not bool(body.get("error"))} for todo in task.get("todos", [])]
     task_queue.add_event(task["id"], "todos", {"todos": todos})
-    task_queue.add_event(task["id"], task["status"], {"result": body.get("result", ""), "error": body.get("error", "")})
+    task_queue.add_event(task["id"], task["status"], {"result": body.get("result", ""), "error": body.get("error", ""),
+                                                      "finished_at": task["finished_at"]})
     return {"ok": True}
 
 
