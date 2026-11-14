@@ -25,7 +25,9 @@ EDIT_COMMANDS = {"mkdir", "touch", "cp", "mv", "tee"}
 ALLOWED_TEXT = "ls head cat pwd find grep wc sort sleep echo, git status/diff/log/show/add/commit, mkdir touch cp mv tee"
 MAX_STEPS = 15  # model decisions per task (command, answer, blocked and failed steps all count)
 COMMAND_TIMEOUT = int(os.environ.get("HARU_COMMAND_TIMEOUT", "120"))
-OUTPUT_FOR_MODEL = 1500  # characters of one output sent back to the model (the server clips again)
+OUTPUT_FOR_MODEL = 1200  # characters of one output sent back to the model (the server clips again)
+NEXT_RETRIES = 3  # /worker/next answers 502/503/504 or the connection fails: ask again this many times
+NEXT_RETRY_WAIT = 5  # seconds between those asks
 # "allow_all" runs without asking, so it is honored only on isolated computers (Actions, Codespaces)
 ISOLATED = os.environ.get("HARU_ISOLATED") == "1" or any(w in WORKER_ID.lower() for w in ("action", "codespace"))
 
@@ -161,8 +163,32 @@ def clip(text, limit=OUTPUT_FOR_MODEL):
     text = str(text or "")
     if len(text) <= limit:
         return text
-    head = int(limit * 0.6)
-    return text[:head] + "\n…(중략)…\n" + text[-(limit - head):]
+    head = int(limit * 0.7)
+    return text[:head] + f"\n…(중략, 총 {len(text)}자)…\n" + text[-(limit - head):]
+
+
+def request_next(task, body):
+    """POST /worker/next. A 502/503/504 or a connection error is asked again (NEXT_RETRIES times, NEXT_RETRY_WAIT s apart);
+    anything else, or running out of tries, fails the task with the reason (one log line)."""
+    last = ""
+    for attempt in range(NEXT_RETRIES + 1):
+        try:
+            return api("/worker/next", body, timeout=180)
+        except urllib.error.HTTPError as exc:
+            if exc.code not in (502, 503, 504):
+                raise
+            try:
+                detail = exc.read().decode("utf-8", "replace")[:150]
+            except Exception:
+                detail = ""
+            last = f"서버 응답 {exc.code} {detail}".strip()
+        except (urllib.error.URLError, OSError) as exc:
+            last = f"연결 오류: {exc}"
+        if attempt < NEXT_RETRIES:
+            print(f"[{task['id'][:8]}] /worker/next {last[:160]} -> {NEXT_RETRY_WAIT}초 뒤 다시 ({attempt + 1}/{NEXT_RETRIES})", flush=True)
+            time.sleep(NEXT_RETRY_WAIT)
+    print(f"[{task['id'][:8]}] /worker/next 실패 ({NEXT_RETRIES}번 다시 물은 뒤): {last[:300]}", flush=True)
+    raise RuntimeError(f"모델이 다음 행동을 정하지 못했습니다 ({last[:120]})")
 
 
 def poll(task, work):
@@ -276,8 +302,8 @@ def run_task(task):
             poll(task, work)
             entries = [p.name for p in work.iterdir() if p.name not in (".git", ".env") and not p.name.startswith(".env.")]
             force = len(history) >= MAX_STEPS
-            resp = api("/worker/next", {"task_id": task["id"], "content": task["content"], "entries": entries,
-                                         "history": history, "force_done": force}, timeout=180)
+            resp = request_next(task, {"task_id": task["id"], "content": task["content"], "entries": entries,
+                                        "history": history, "force_done": force})
             if resp.get("todos"):
                 publish(task["id"], "todos", {"todos": resp["todos"]})
             kind = resp.get("action")

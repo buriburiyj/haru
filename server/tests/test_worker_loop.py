@@ -1,14 +1,21 @@
 """The worker's loop with a fake server: next action -> run -> output back -> next action ... until "done"."""
+import contextlib
+import io
 import json
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_main import haru_worker  # noqa: E402  (also puts worker/ on the path)
 
 W = haru_worker
+
+
+def http_error(code, detail="model returned an invalid action"):
+    return urllib.error.HTTPError("http://x/worker/next", code, "err", {}, io.BytesIO(('{"detail":"%s"}' % detail).encode()))
 
 
 class FakeServer:
@@ -18,6 +25,8 @@ class FakeServer:
         self.script = list(script)
         self.mode = mode
         self.next_calls = []
+        self.next_attempts = 0
+        self.next_failures = []  # exceptions raised by /worker/next before it answers
         self.events = []
         self.permission_asked = []
 
@@ -33,6 +42,9 @@ class FakeServer:
             self.permission_asked.append(body["command"])
             return {"decision": "deny"}
         if path == "/worker/next":
+            self.next_attempts += 1
+            if self.next_failures:
+                raise self.next_failures.pop(0)
             self.next_calls.append(json.loads(json.dumps(body)))  # what was sent at that moment
             step = self.script.pop(0) if self.script else {"action": "done", "summary": "script ended"}
             return step(body) if callable(step) else step
@@ -48,11 +60,12 @@ class WorkerLoopTest(unittest.TestCase):
         self.src = Path(self.tmp.name) / "src"
         self.src.mkdir()
         (self.src / "README.md").write_text("# Haru 프로젝트\nsecond line\n")
-        self.orig = (W.ROOT, W.SOURCE, W.api, W.ISOLATED, W.COMMAND_TIMEOUT)
+        self.orig = (W.ROOT, W.SOURCE, W.api, W.ISOLATED, W.COMMAND_TIMEOUT, W.NEXT_RETRY_WAIT)
+        W.NEXT_RETRY_WAIT = 0
         W.ROOT, W.SOURCE = Path(self.tmp.name) / "work", self.src
 
     def tearDown(self):
-        W.ROOT, W.SOURCE, W.api, W.ISOLATED, W.COMMAND_TIMEOUT = self.orig
+        W.ROOT, W.SOURCE, W.api, W.ISOLATED, W.COMMAND_TIMEOUT, W.NEXT_RETRY_WAIT = self.orig
         self.tmp.cleanup()
 
     def run_task(self, server, mode="auto", content="README 첫 줄을 요약해줘"):
@@ -183,6 +196,41 @@ class WorkerLoopTest(unittest.TestCase):
         self.run_task(server)
         self.assertEqual(server.of("error")[0]["exit_code"], 124)
         self.assertIn("시간 초과", server.of("error")[0]["output"])
+
+    # ---- /worker/next trouble ----
+    def test_a_502_once_then_the_task_goes_on(self):
+        server = FakeServer([{"action": "command", "command": "ls"}, {"action": "done", "summary": "ok"}])
+        server.next_failures = [http_error(502)]
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(self.run_task(server), "ok")
+        self.assertEqual(server.next_attempts, 3)  # failed once, then both steps
+        self.assertIn("다시 (1/3)", out.getvalue())
+
+    def test_503_504_and_connection_errors_are_asked_again(self):
+        for failures in ([http_error(503)], [http_error(504)], [urllib.error.URLError("connection refused")], [OSError("reset")]):
+            server = FakeServer([{"action": "done", "summary": "ok"}])
+            server.next_failures = failures
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(self.run_task(server, content="retry " + repr(failures)), "ok")
+
+    def test_three_retries_then_the_task_fails_with_a_reason_and_a_log_line(self):
+        server = FakeServer([{"action": "done", "summary": "never"}])
+        server.next_failures = [http_error(502)] * 4
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), self.assertRaises(RuntimeError) as cm:
+            self.run_task(server)
+        self.assertEqual(server.next_attempts, 4)  # 1 + 3 retries
+        self.assertIn("모델이 다음 행동을 정하지 못했습니다", str(cm.exception))
+        self.assertIn("502", str(cm.exception))
+        self.assertIn("3번 다시 물은 뒤", out.getvalue())
+
+    def test_other_http_errors_are_not_retried(self):
+        server = FakeServer([{"action": "done", "summary": "never"}])
+        server.next_failures = [http_error(400)]
+        with self.assertRaises(urllib.error.HTTPError):
+            self.run_task(server)
+        self.assertEqual(server.next_attempts, 1)
 
     def test_changed_files_are_listed_in_the_summary_event(self):
         server = FakeServer([{"action": "command", "command": "touch new.txt"}, {"action": "done", "summary": "ok"}], mode="auto_edit")

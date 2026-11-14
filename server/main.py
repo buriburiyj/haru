@@ -904,29 +904,36 @@ WORKER_MODEL_TIMEOUT = 150  # every /worker/* answer must be finished within 180
 @app.post("/worker/next")
 async def worker_next(request: Request):
     """Choose the NEXT action of a task from what happened so far (history sent by the worker): a shell command,
-    an answer written by the model, or done with the final summary. Uses the fast router path (Groq, then NVIDIA)."""
+    an answer written by the model, or done with the final summary. Uses the fast router path (Groq, then NVIDIA);
+    a reply that cannot be read is asked again, then asked of the NVIDIA models."""
     if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
     body = await request.json()
     task = task_queue.TASKS.get(body.get("task_id"))
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
-    got_text = []
+    trace = {"reasons": []}
 
-    async def ask(prompt):
+    async def ask(messages, mode):
         parts, model = [], None
-        async for kind, value in router.route([{"role": "user", "content": prompt}], "easy"):
+        async for kind, value in router.route(messages, mode):
             if kind == "model": model = value
             elif kind == "delta": parts.append(value)
-        if parts:
-            got_text.append(True)
         return "".join(parts), model
 
+    nvidia = [m["id"] for m in router.models() if m["provider"] == "nvidia"]
+
+    def fail(reason, status):
+        log.warning("worker next failed: reason=%s tries=[%s] model=%s reply_head=%r", reason, "; ".join(trace["reasons"]),
+                    trace.get("model"), agent_loop.mask_secrets(trace.get("head", "")))
+        return JSONResponse({"detail": {"시간 초과": "model timeout", "빈 답": "model unavailable"}.get(reason, "model returned an invalid action")},
+                            status_code=status)
+
     try:
-        action, model, todos = await asyncio.wait_for(agent_loop.next_action(ask, task, body), WORKER_MODEL_TIMEOUT)
+        action, model, todos = await asyncio.wait_for(
+            agent_loop.next_action(ask, task, body, trace, nvidia), WORKER_MODEL_TIMEOUT)
     except asyncio.TimeoutError:
-        return JSONResponse({"detail": "model timeout"}, status_code=503)
+        return fail("시간 초과", 503)
     if action is None:
-        return JSONResponse({"detail": "model unavailable" if not got_text else "model returned an invalid action"},
-                            status_code=503 if not got_text else 502)
+        return fail("형식 오류", 502) if trace.get("saw_text") else fail("빈 답", 503)
     return {**action, "todos": todos, "model": model}
 
 
