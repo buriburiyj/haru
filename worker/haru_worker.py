@@ -24,11 +24,11 @@ READ_COMMANDS = {"ls", "head", "cat", "pwd", "find", "grep", "wc", "sort", "slee
 EDIT_COMMANDS = {"mkdir", "touch", "cp", "mv", "tee"}
 
 
-def api(path, body=None, method="POST"):
+def api(path, body=None, method="POST", timeout=30):
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(BASE + path, data=data, method=method,
         headers={"X-Worker-Token": TOKEN, "Content-Type": "application/json", "User-Agent": "haru-worker/1.0"})
-    with urllib.request.urlopen(req, timeout=30) as response:
+    with urllib.request.urlopen(req, timeout=timeout) as response:
         return json.load(response)
 
 
@@ -146,7 +146,7 @@ def run_task(task):
         publish(task["id"], "action", {"id": action_id, "label": "요청 보안 검사", "command": "요청 검증", "status": "running", "outward": False})
         publish(task["id"], "skipped", {"id": action_id, "command": "요청 검증", "reason": ".env 접근 요청은 항상 차단됩니다"})
         return "건너뜀: .env 접근은 차단되었습니다."
-    plan = api("/worker/plan", {"task_id": task["id"], "entries": entries})
+    plan = api("/worker/plan", {"task_id": task["id"], "entries": entries}, timeout=180)
     command, summary = plan["command"], plan["summary"]
     label = plan.get("label") or ("명령 실행: " + command[:72])
     task_queue_checkpoint = task.get("checkpoint") or {}

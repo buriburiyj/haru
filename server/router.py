@@ -133,6 +133,11 @@ async def _stream_openai(client, url, key_name, model, messages):
                 yield delta
 
 
+import time
+CODEX_COOLDOWN = 1800  # after a Codex failure, skip it in fallback chains for 30 min
+_CODEX_DOWN_UNTIL = [0.0]
+
+
 async def route(messages: list, mode: str = "auto", effort: str = ""):
     """Async generator of (kind, value).
     kind: 'model' (id of the model that is answering), 'delta' (answer text),
@@ -150,6 +155,8 @@ async def route(messages: list, mode: str = "auto", effort: str = ""):
             else:
                 chain = [("codex", CODEX_MODELS)] + nvidia  # one Actions run tries the 3 models in order
         for prov, model in chain:
+            if prov == "codex" and len(chain) > 1 and time.time() < _CODEX_DOWN_UNTIL[0]:
+                continue
             if prov == "codex":
                 try:
                     async for kind, value in codex.run(messages, model, effort):
@@ -157,6 +164,7 @@ async def route(messages: list, mode: str = "auto", effort: str = ""):
                     return
                 except (codex.CodexUnavailable, httpx.HTTPError) as e:
                     codex.log.warning("codex unavailable: %s", e)
+                    _CODEX_DOWN_UNTIL[0] = time.time() + CODEX_COOLDOWN
                     if len(chain) > 1:
                         yield "notice", "Codex를 쓸 수 없어서 다른 모델로 답해요."
                     continue

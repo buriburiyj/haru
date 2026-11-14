@@ -233,5 +233,24 @@ class RouterCodexTest(unittest.TestCase):
         self.assertEqual(seen["models"], ["gpt-5.6-terra"])
 
 
+
+def _reset_codex_cooldown():
+    import sys
+    for m in list(sys.modules.values()):
+        v = getattr(m, "_CODEX_DOWN_UNTIL", None)
+        if isinstance(v, list) and v:
+            v[0] = 0.0
+
+
+_router_codex_setup = RouterCodexTest.setUp
+
+
+def _router_codex_setup_reset(self):
+    _reset_codex_cooldown()
+    _router_codex_setup(self)
+
+
+RouterCodexTest.setUp = _router_codex_setup_reset
+
 if __name__ == "__main__":
     unittest.main()
