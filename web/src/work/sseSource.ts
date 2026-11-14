@@ -1,4 +1,4 @@
-import { createTask, decideTaskPermission, messageTask, rewindTask, setTaskMode, stopTask, taskEvents, type ActiveTask, type PermissionMode as ServerMode, type TaskDetail } from "../api";
+import { createTask, decideTaskPermission, getWorkers, messageTask, rewindTask, setTaskMode, stopTask, taskEvents, type ActiveTask, type PermissionMode as ServerMode, type TaskDetail } from "../api";
 import type { Computer, PermissionAnswer, PermissionMode, TaskConnection, TaskEvent, TaskPermission, TaskSource, WorkAction, WorkSummary } from "./types";
 
 // Real TaskSource: POST /tasks, then GET /tasks/{id}/events (SSE). It turns the server's events (server/API.md,
@@ -21,7 +21,7 @@ const FROM_SERVER: Record<string, PermissionMode> = {
   skip: "quiet",
   allow_all: "all",
 };
-const COMPUTER: Record<string, Computer> = { mac: "box", box: "box", tab: "tab", actions: "actions", codespaces: "codespaces" };
+const COMPUTER: Record<string, Computer> = { mac: "mac", tab: "tab", actions: "actions", codespaces: "codespaces" };
 const CHANGE: Record<string, "추가" | "수정" | "삭제"> = { added: "추가", modified: "수정", deleted: "삭제" };
 const TERMINAL = new Set(["done", "failed", "stopped"]);
 
@@ -30,11 +30,26 @@ const norm = (t: string) => t.replace(/\s+/g, " ").trim().toLowerCase();
 const str = (v: unknown, fallback = "") => (v === undefined || v === null ? fallback : String(v));
 
 /** Stateful translator: one server event in, zero or more TaskEvents out. */
-function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean; prompt?: string } = { statusElapsed: true }) {
+function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean; prompt?: string; liveClock?: boolean } = { statusElapsed: true, liveClock: true }) {
   let n = 0;
   const actions = new Map<string, WorkAction>();
   const skipped: { text: string; reason: string }[] = [];
   let summarySent = false;
+  let started = false; // a worker took the task (status running / first action)
+  let over = false; // done / failed / stopped was seen
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
+  // Server times: the elapsed time counts from the server's start, so it is the same on every device and after a refresh.
+  const times = (d: Json): Partial<Extract<TaskEvent, { type: "meta" }>> => {
+    const startedAt = num(d.started_at) ?? num(d.created_at);
+    const finishedAt = num(d.finished_at);
+    const now = num(d.now);
+    return {
+      ...(startedAt !== undefined ? { startedAt } : {}),
+      ...(finishedAt !== undefined ? { finishedAt } : {}),
+      // `now` is only trusted when the event is fresh (a replayed event carries an old clock)
+      ...(opts.liveClock && now !== undefined ? { clockOffset: now - Date.now() / 1000 } : {}),
+    };
+  };
   // interjections: the screen already shows a row with a local id; the server confirms with its own id
   const interjections: { localId: string; text: string; serverId?: string }[] = [];
 
@@ -56,7 +71,7 @@ function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean
       case "task": {
         const mode = FROM_SERVER[str(d.mode)];
         const chatId = str(d.chatId);
-        emit({ type: "meta", ...(mode ? { mode } : {}), ...(chatId ? { chatId } : {}), elapsed: 0 });
+        emit({ type: "meta", ...(mode ? { mode } : {}), ...(chatId ? { chatId } : {}), elapsed: 0, ...times(d) });
         emit({ type: "state", state: "working" });
         break;
       }
@@ -73,8 +88,13 @@ function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean
       case "status": {
         const computer = COMPUTER[str(d.computer ?? d.worker).toLowerCase()];
         const elapsed = opts.statusElapsed && typeof d.elapsed === "number" ? d.elapsed : undefined;
-        emit({ type: "meta", ...(computer ? { computer } : {}), ...(elapsed !== undefined ? { elapsed } : {}) });
+        emit({ type: "meta", ...(computer ? { computer } : {}), ...(elapsed !== undefined ? { elapsed } : {}), ...times(d) });
         const s = str(d.status);
+        if (s === "running") {
+          started = true;
+          const waiting = actions.get("no-worker");
+          if (waiting) upsert({ ...waiting, label: "일할 컴퓨터가 연결되었습니다", status: "done", reason: undefined }); // it was waiting; now it works
+        }
         if (s === "failed") emit({ type: "state", state: "failed" });
         else if (s === "stopped") emit({ type: "state", state: "stopped" });
         else emit({ type: "state", state: "working" }); // queued / running (done comes with the `done` event)
@@ -169,6 +189,8 @@ function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean
         break;
       }
       case "done": {
+        over = true;
+        emit({ type: "meta", ...times(d) });
         finishRunning("done");
         emit({ type: "state", state: "done" });
         const result = str(d.result);
@@ -176,6 +198,8 @@ function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean
         break;
       }
       case "failed": {
+        over = true;
+        emit({ type: "meta", ...times(d) });
         finishRunning("skipped", "중단되었습니다.");
         const error = str(d.error, "작업이 실패했습니다.");
         if (![...actions.values()].some((a) => a.status === "failed")) upsert({ id: `a${++n}`, label: "작업이 실패했습니다", status: "failed", reason: error });
@@ -196,6 +220,8 @@ function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean
         break;
       }
       case "stopped": {
+        over = true;
+        emit({ type: "meta", ...times(d) });
         finishRunning("skipped", "멈췄습니다.");
         emit({ type: "state", state: "stopped" });
         break;
@@ -205,6 +231,19 @@ function makeMapper(emit: (e: TaskEvent) => void, opts: { statusElapsed: boolean
 
   return {
     handle,
+    hasStarted: () => started,
+    isOver: () => over,
+    /** Still queued and no computer is connected: say so (no endless spinner). It starts by itself when one connects. */
+    noWorker() {
+      if (started || actions.has("no-worker")) return;
+      upsert({
+        id: "no-worker",
+        label: "일할 컴퓨터가 연결되지 않았습니다",
+        status: "failed",
+        reason: "맥이나 탭에서 일꾼이 켜져 있는지 확인해 주세요. 연결되면 이 작업은 자동으로 시작됩니다.",
+      });
+      emit({ type: "state", state: "failed" });
+    },
     addInterjection(localId: string, text: string) {
       interjections.push({ localId, text });
     },
@@ -255,6 +294,17 @@ function explain(err: unknown): string {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Time facts of a task fetched from the server (list or detail): same on every device. */
+function detailTimes(task: ActiveTask): Extract<TaskEvent, { type: "meta" }> {
+  const startedAt = task.started_at ?? task.created_at;
+  return {
+    type: "meta",
+    ...(startedAt != null ? { startedAt } : {}),
+    ...(task.finished_at != null ? { finishedAt: task.finished_at } : {}),
+    ...(typeof task.now === "number" ? { clockOffset: task.now - Date.now() / 1000 } : {}),
+  };
+}
 
 export type SseSourceOptions = { prompt: string; mode: PermissionMode; conversationId?: string };
 
@@ -363,7 +413,21 @@ export function sseSource(opts: SseSourceOptions): TaskSource {
           map.failed("작업을 시작하지 못했습니다", explain(err));
           return null;
         });
-      return connectTask(taskId, map, { after: 0, following: false }, new AbortController(), true);
+      const ctrl = new AbortController();
+      // No computer connected: say so instead of waiting silently (a worker polls every 10 s, so allow 12 s first).
+      void taskId.then(async (id) => {
+        if (!id) return;
+        await sleep(12000);
+        while (!ctrl.signal.aborted && !map.hasStarted() && !map.isOver()) {
+          try {
+            if ((await getWorkers()).online === 0) map.noWorker();
+          } catch {
+            /* the endpoint being unreachable is reported by the stream itself */
+          }
+          await sleep(5000);
+        }
+      });
+      return connectTask(taskId, map, { after: 0, following: false }, ctrl, true);
     },
   };
 }
@@ -375,9 +439,9 @@ export function sseSource(opts: SseSourceOptions): TaskSource {
 export function attachSource(task: ActiveTask): TaskSource {
   return {
     connect(emit): TaskConnection {
-      const map = makeMapper(emit, { statusElapsed: false, prompt: task.content });
+      const map = makeMapper(emit, { statusElapsed: false, prompt: task.content, liveClock: false });
       const computer = COMPUTER[str(task.computer).toLowerCase()];
-      emit({ type: "meta", mode: FROM_SERVER[task.mode], ...(computer ? { computer } : {}), elapsed: task.elapsed });
+      emit({ ...detailTimes(task), mode: FROM_SERVER[task.mode], ...(computer ? { computer } : {}), elapsed: task.elapsed });
       emit({ type: "state", state: "working" });
       return connectTask(Promise.resolve(task.id), map, { after: 0, following: false }, new AbortController(), true);
     },
@@ -391,9 +455,9 @@ export function attachSource(task: ActiveTask): TaskSource {
 export function storedSource(task: TaskDetail): TaskSource {
   return {
     connect(emit): TaskConnection {
-      const map = makeMapper(emit, { statusElapsed: false, prompt: task.content });
+      const map = makeMapper(emit, { statusElapsed: false, prompt: task.content, liveClock: false });
       const computer = COMPUTER[str(task.computer).toLowerCase()];
-      emit({ type: "meta", mode: FROM_SERVER[task.mode], ...(computer ? { computer } : {}), elapsed: task.elapsed ?? 0 });
+      emit({ ...detailTimes(task), mode: FROM_SERVER[task.mode], ...(computer ? { computer } : {}), elapsed: task.elapsed ?? 0 });
       const cursor: Cursor = { after: 0, following: false };
       let ended = false;
       for (const e of [...task.events].sort((a, b) => a.id - b.id)) {

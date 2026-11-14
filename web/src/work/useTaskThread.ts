@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { INITIAL_TASK_STATE, reduceTask } from "./useTask";
+import { elapsedOf } from "./types";
 import type { PermissionAnswer, PermissionMode, TaskConnection, TaskEvent, TaskPermission, TaskSource, WorkFile, WorkRun } from "./types";
 
 // useTaskThread: all work tasks of one conversation (each message sent in Work mode starts one task).
@@ -25,7 +26,7 @@ export function useTaskThread(makeSource: (opts: { prompt: string; mode: Permiss
   const counter = useRef(0);
   const interjections = useRef(0);
 
-  const elapsedOf = (id: string): number => {
+  const localElapsed = (id: string): number => {
     const c = clocks.current.get(id);
     if (!c) return 0;
     return c.frozen ? c.base : c.base + Math.floor((Date.now() - c.at) / 1000);
@@ -51,7 +52,7 @@ export function useTaskThread(makeSource: (opts: { prompt: string; mode: Permiss
       clocks.current.set(id, { base: 0, at: Date.now(), frozen: false });
       const c = source.connect((e) => {
         if (e.type === "meta" && e.elapsed !== undefined) clocks.current.set(id, { base: e.elapsed, at: Date.now(), frozen: false });
-        if (e.type === "state" && e.state !== "working") clocks.current.set(id, { base: elapsedOf(id), at: Date.now(), frozen: true });
+        if (e.type === "state" && e.state !== "working") clocks.current.set(id, { base: localElapsed(id), at: Date.now(), frozen: true });
         dispatch({ type: "event", id, event: e });
       });
       conns.current.set(id, c);
@@ -71,7 +72,7 @@ export function useTaskThread(makeSource: (opts: { prompt: string; mode: Permiss
   /** Follow a task that already runs on the server (after a refresh), or show a stored one. */
   const attach = useCallback((prompt: string, source: TaskSource) => startWith(prompt, source), [startWith]);
 
-  const tasks: TaskItem[] = raw.map((t) => ({ id: t.id, prompt: t.prompt, run: { ...t.run, elapsed: elapsedOf(t.id) }, files: t.files, permission: t.permission }));
+  const tasks: TaskItem[] = raw.map((t) => ({ id: t.id, prompt: t.prompt, run: { ...t.run, elapsed: elapsedOf(t.run, localElapsed(t.id)) }, files: t.files, permission: t.permission }));
   const active = tasks[tasks.length - 1] as TaskItem | undefined;
   const activeId = active?.id;
 

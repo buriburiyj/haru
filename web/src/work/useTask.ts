@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { elapsedOf } from "./types";
 import type { PermissionAnswer, PermissionMode, RunState, TaskEvent, TaskPermission, TaskSource, WorkFile, WorkRun } from "./types";
 
 // useTask: the ONE place the progress screen gets its data from.
@@ -8,7 +9,7 @@ import type { PermissionAnswer, PermissionMode, RunState, TaskEvent, TaskPermiss
 export type TaskState = { run: WorkRun; files: WorkFile[]; permission: TaskPermission | null };
 
 export const INITIAL_TASK_STATE: TaskState = {
-  run: { computer: "box", mode: "auto", state: "working", elapsed: 0, todos: [], actions: [] },
+  run: { computer: "tab", mode: "auto", state: "working", elapsed: 0, todos: [], actions: [] },
   files: [],
   permission: null,
 };
@@ -18,7 +19,7 @@ export function reduceTask(s: TaskState, e: TaskEvent): TaskState {
     case "reset":
       return INITIAL_TASK_STATE;
     case "meta":
-      return { ...s, run: { ...s.run, ...(e.computer ? { computer: e.computer } : {}), ...(e.mode ? { mode: e.mode } : {}), ...(e.chatId ? { chatId: e.chatId } : {}) } };
+      return { ...s, run: { ...s.run, ...(e.computer ? { computer: e.computer } : {}), ...(e.mode ? { mode: e.mode } : {}), ...(e.chatId ? { chatId: e.chatId } : {}), ...(e.startedAt !== undefined ? { startedAt: e.startedAt } : {}), ...(e.finishedAt !== undefined ? { finishedAt: e.finishedAt } : {}), ...(e.clockOffset !== undefined ? { clockOffset: e.clockOffset } : {}) } };
     case "state":
       return { ...s, run: { ...s.run, state: e.state } };
     case "todos":
@@ -88,7 +89,7 @@ export function useTask(source: TaskSource) {
   const rewind = useCallback((actionId: string) => conn.current?.rewind(actionId), []);
   const setMode = useCallback((mode: PermissionMode) => conn.current?.setMode(mode), []);
 
-  const run: WorkRun = { ...state.run, elapsed };
+  const run: WorkRun = { ...state.run, elapsed: elapsedOf(state.run, elapsed) };
   const runState: RunState = run.state;
   return { run, runState, files: state.files, permission: state.permission, stop, interject, decide, rewind, setMode };
 }

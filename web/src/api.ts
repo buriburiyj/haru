@@ -412,12 +412,21 @@ export type ActiveTask = Task & {
   content: string;
   mode: PermissionMode;
   computer: "mac" | "tab" | "actions" | "codespaces" | null;
+  /** UTC epoch seconds. The elapsed time of every device counts from started_at (or created_at while still queued). */
+  created_at?: number;
   started_at: number | null;
+  /** set when the task is done / failed / stopped: the elapsed time is then fixed */
+  finished_at?: number | null;
+  /** server clock when this was answered (to correct a phone clock that differs) */
+  now?: number;
   elapsed: number;
   last_event_id: number;
 };
 export type TaskEvent = { id: number; event: string; data: Record<string, unknown>; time: number };
-export type TaskDetail = ActiveTask & { conversation_id: string; events: TaskEvent[] };
+export type TaskDetail = ActiveTask & { conversation_id: string; workers_online?: number; events: TaskEvent[] };
+/** GET /workers: computers that can take a queued task right now (claim poll or heartbeat in the last `window` seconds). */
+export type WorkersInfo = { workers: { id: string; computer: "mac" | "tab" | "actions" | "codespaces"; last_seen: number }[]; online: number; window: number; now: number };
+export const getWorkers = () => api<WorkersInfo>("GET", "/workers");
 /** POST /tasks */
 export const createTask = (content: string, mode: PermissionMode = "auto", conversationId = "") =>
   api<Task>("POST", "/tasks", { content, mode, conversation_id: conversationId });

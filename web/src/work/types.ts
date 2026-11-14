@@ -23,15 +23,15 @@ export const MODE_HINT: Record<PermissionMode, string> = {
 
 export const MODE_ORDER: PermissionMode[] = ["ask", "auto-edit", "plan", "auto", "quiet", "all"];
 
-export type Computer = "box" | "tab" | "actions" | "codespaces";
+export type Computer = "mac" | "tab" | "actions" | "codespaces";
 export const COMPUTER_LABEL: Record<Computer, string> = {
-  box: "맥 (box)",
+  mac: "맥",
   tab: "탭 S6",
   actions: "GitHub Actions",
   codespaces: "Codespaces",
 };
 /** "전부 허용" is only allowed on isolated computers. */
-export const ISOLATED: Record<Computer, boolean> = { box: false, tab: false, actions: true, codespaces: true };
+export const ISOLATED: Record<Computer, boolean> = { mac: false, tab: false, actions: true, codespaces: true };
 
 export type StepStatus = "done" | "running" | "failed" | "skipped" | "pending";
 
@@ -67,6 +67,11 @@ export type RunState = "working" | "done" | "failed" | "stopped";
 export type WorkRun = {
   /** conversation id; known as soon as the server answered POST /tasks */
   chatId?: string;
+  /** UTC epoch seconds from the server: the elapsed time is computed from these, not from when this screen opened */
+  startedAt?: number;
+  finishedAt?: number;
+  /** server clock minus this device's clock (seconds), so a wrong phone clock does not shift the time */
+  clockOffset?: number;
   computer: Computer;
   mode: PermissionMode;
   state: RunState;
@@ -76,6 +81,16 @@ export type WorkRun = {
   actions: WorkAction[];
   summary?: WorkSummary;
 };
+
+/**
+ * Elapsed seconds of a run. With the server's start time every device (and every refresh) shows the same value;
+ * a finished run is fixed at finishedAt - startedAt. Without server times (the fake source) the old counter is used.
+ */
+export function elapsedOf(run: WorkRun, fallback: number, nowMs = Date.now()): number {
+  if (run.startedAt === undefined) return fallback;
+  const end = run.finishedAt ?? (run.state === "working" ? nowMs / 1000 + (run.clockOffset ?? 0) : undefined);
+  return end === undefined ? fallback : Math.max(0, Math.floor(end - run.startedAt));
+}
 
 export function formatElapsed(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -108,7 +123,7 @@ export type PermissionAnswer = "once" | "always" | "deny";
 /** Events a task source pushes, in any order. `action` is an upsert by id (append when new). */
 export type TaskEvent =
   | { type: "reset" }
-  | { type: "meta"; computer?: Computer; mode?: PermissionMode; /** seconds already worked */ elapsed?: number; /** the conversation this task belongs to (server creates one for a new Work request) */ chatId?: string }
+  | { type: "meta"; computer?: Computer; mode?: PermissionMode; /** seconds already worked */ elapsed?: number; /** the conversation this task belongs to (server creates one for a new Work request) */ chatId?: string; startedAt?: number; finishedAt?: number; clockOffset?: number }
   | { type: "state"; state: RunState }
   | { type: "todos"; todos: Todo[] }
   | { type: "action"; action: WorkAction }

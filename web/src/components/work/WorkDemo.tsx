@@ -22,11 +22,11 @@ const SCENARIOS: { id: FakeScenario; label: string }[] = [
   { id: "failed", label: "실패" },
   { id: "done", label: "끝남" },
 ];
-const COMPUTERS: Computer[] = ["box", "tab", "actions", "codespaces"];
+const COMPUTERS: Computer[] = ["tab", "actions", "codespaces"];
 
 export default function WorkDemo() {
   const [scenario, setScenario] = useState<FakeScenario>("working");
-  const [computer, setComputer] = useState<Computer>("box");
+  const [computer, setComputer] = useState<Computer>("tab");
   const [text, setText] = useState("");
   const [web, setWeb] = useState(true);
   const [artifact, setArtifact] = useState<ArtifactData | null>(null);

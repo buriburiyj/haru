@@ -77,7 +77,7 @@ export default function App() {
   }, [workChatId]);
 
   // "전부 허용" only works on isolated computers: fall back to "자동" when the running computer is not isolated
-  const computer = thread.active?.run.computer ?? "box";
+  const computer = thread.active?.run.computer ?? "tab";
   useEffect(() => {
     if (permMode === "all" && !ISOLATED[computer]) setPermMode("auto");
   }, [permMode, computer, setPermMode]);

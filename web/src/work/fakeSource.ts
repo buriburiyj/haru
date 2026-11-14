@@ -59,7 +59,7 @@ const FILES: WorkFile[] = [
 
 export type FakeOptions = { /** starting mode (default: auto, or quiet for the done example) */ mode?: PermissionMode; /** seconds already worked at the start (default: the example's own) */ elapsedStart?: number };
 
-export function fakeSource(scenario: FakeScenario, computer: Computer = "box", opts: FakeOptions = {}): TaskSource {
+export function fakeSource(scenario: FakeScenario, computer: Computer = "tab", opts: FakeOptions = {}): TaskSource {
   return {
     connect(emit) {
       const timers: number[] = [];
