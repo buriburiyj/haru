@@ -27,7 +27,7 @@ EDIT_COMMANDS = {"mkdir", "touch", "cp", "mv", "tee"}
 def api(path, body=None, method="POST"):
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(BASE + path, data=data, method=method,
-        headers={"X-Worker-Token": TOKEN, "Content-Type": "application/json"})
+        headers={"X-Worker-Token": TOKEN, "Content-Type": "application/json", "User-Agent": "haru-worker/1.0"})
     with urllib.request.urlopen(req, timeout=30) as response:
         return json.load(response)
 
@@ -249,7 +249,8 @@ def main():
                     heartbeat_thread.join(timeout=1)
             else:
                 time.sleep(5)
-        except (OSError, urllib.error.URLError):
+        except (OSError, urllib.error.URLError) as exc:
+            print(f"서버 연결 실패: {exc}", flush=True)
             time.sleep(10)
 
 
