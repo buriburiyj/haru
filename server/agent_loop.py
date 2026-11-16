@@ -26,6 +26,11 @@ On the very first step also include "todos": [3 to 6 short Korean checklist stri
 Rules:
 - Take as many steps as needed, but be efficient. Read files before you change them. After a command, look at its real output.
 - Use "done" only after you have seen the outputs you rely on. The summary must be based on them. Never invent output.
+- In "answer" and "summary" write ONLY what appears in the real command outputs shown below (and in the task text). Anything that is
+  not in those outputs must not be written: no guessed file contents, names, numbers, or results. If you could not find something, say so.
+  (실제 명령 출력에 있는 내용만 쓰고, 없는 건 쓰지 마라.)
+- Use real line breaks in "answer" and "summary" (one point per line, e.g. three lines for "summarize in three lines"); never write the two characters \\n.
+- Give ONE answer at most. After you have answered, the only next action is "done".
 - Commands run with the workspace as the current folder. Use relative paths only: no absolute paths, no "~", no "..", no .env or secret files.
 - Allowed commands: ls head cat pwd find (no -delete) grep wc sort sleep echo; git status/diff/log/show/add/commit; mkdir touch cp mv tee.
   Programs such as python or node, and anything else, run only in allow_all mode (isolated computers).
@@ -102,6 +107,9 @@ def build_prompt(task, body, extra=""):
              f"Step {step} of at most {MAX_STEPS}. " + ("This is the LAST step: reply with action \"done\" and summarize honestly what was done, what failed or was blocked, and what remains." if force else ""),
              "What happened so far:\n" + (format_history(history) or "(nothing yet: this is the first step; include todos)")]
     counts = blocked_counts(history)
+    if any(h["kind"] == "answer" and h["text"].strip() for h in history):
+        parts.append("You already answered (이미 답했다). Do NOT answer again: reply with action \"done\" only. "
+                     "Its summary may restate the answer, with line breaks, using only what the real outputs showed.")
     twice = [c for c, n in counts.items() if n >= 2]
     if twice:
         parts.append("These commands were blocked twice and MUST NOT be proposed again: " + json.dumps(twice, ensure_ascii=False))
@@ -128,7 +136,7 @@ def mask_secrets(text):
 
 def json_objects(text):
     """Every top-level JSON object in a reply, in order (text before/after, code fences, examples are skipped)."""
-    decoder = json.JSONDecoder()
+    decoder = json.JSONDecoder(strict=False)  # a raw line break inside a string is accepted and kept
     i = 0
     while True:
         i = text.find("{", i)
@@ -217,6 +225,14 @@ def normalize(obj, depth=0):
     return None
 
 
+def fix_newlines(text):
+    """Models sometimes write the two characters backslash+n instead of a line break: turn them into real line breaks
+    (only when the text has no real line break yet and does not look like a Windows path such as C:\\new)."""
+    if "\n" not in text and "\\n" in text and not re.search(r"[A-Za-z]:\\", text):
+        text = text.replace("\\r\\n", "\n").replace("\\n", "\n")
+    return text
+
+
 def validate(action):
     """A clean action dict or None."""
     if not isinstance(action, dict) or action.get("action") not in ACTIONS:
@@ -231,7 +247,7 @@ def validate(action):
     text = action.get(key)
     if not isinstance(text, str) or not text.strip():
         return None
-    return {"action": kind, key: text.strip()[:4000]}
+    return {"action": kind, key: fix_newlines(text.strip())[:4000]}
 
 
 def parse_reply(text):
@@ -302,6 +318,8 @@ async def next_action(ask, task, body, trace=None, nvidia_modes=()):
             raw = {}
         else:
             action, raw = retry, retry_raw
+    if action["action"] == "answer" and any(h["kind"] == "answer" and h["text"].strip() for h in history):
+        action = {"action": "done", "summary": action["text"]}  # answered twice: the last answer is the final summary
     if body.get("force_done") is True and action["action"] != "done":
         action = {"action": "done", "summary": action.get("text") or action.get("summary") or "단계 제한에 도달해 멈췄습니다."}
     todos = update_todos(task, {**raw, **action}, first_step=not history)

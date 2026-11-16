@@ -232,6 +232,40 @@ class WorkerLoopTest(unittest.TestCase):
             self.run_task(server)
         self.assertEqual(server.next_attempts, 1)
 
+    # ---- answers: shown once, empty ones hidden, a repeat ends the task ----
+    def answer_rows(self, server):
+        return [o for o in server.of("output") if o["command"] == "(모델이 글로 답함)"]
+
+    def test_a_repeated_answer_is_shown_once_and_ends_the_task(self):
+        text = "README의 첫 줄은 Haru 프로젝트 제목입니다."
+        server = FakeServer([{"action": "command", "command": "head -n 1 README.md"}, {"action": "answer", "text": text},
+                             {"action": "answer", "text": text}, {"action": "answer", "text": text}])
+        result = self.run_task(server)
+        self.assertEqual(result, text)  # the last answer became the summary
+        self.assertEqual(len(self.answer_rows(server)), 1)  # shown one time
+        self.assertEqual(len([a for a in server.of("action") if a["label"] == "답변 정리" and a["status"] == "running"]), 1)
+        self.assertEqual(len(server.next_calls), 3)  # no fourth question after the second answer
+        self.assertEqual(server.of("summary")[0]["text"], text)
+
+    def test_a_different_second_answer_is_the_last_answer_and_the_summary(self):
+        server = FakeServer([{"action": "answer", "text": "첫 번째 답"}, {"action": "answer", "text": "더 나은 두 번째 답"}])
+        self.assertEqual(self.run_task(server), "더 나은 두 번째 답")
+        self.assertEqual([o["text"] for o in self.answer_rows(server)], ["첫 번째 답"])
+
+    def test_an_empty_answer_is_not_shown_and_the_loop_goes_on(self):
+        server = FakeServer([{"action": "answer", "text": "   "}, {"action": "answer", "text": ""}, {"action": "command", "command": "ls"}, {"action": "done", "summary": "ok"}])
+        self.assertEqual(self.run_task(server), "ok")
+        self.assertEqual(self.answer_rows(server), [])
+        self.assertFalse(any(a["label"] == "답변 정리" for a in server.of("action")))
+        self.assertEqual([h["text"] for h in server.next_calls[2]["history"][:2]], ["", ""])  # they only count as steps
+
+    def test_a_multi_line_summary_reaches_the_events_and_the_result_unchanged(self):
+        summary = "1) 프로젝트 이름은 Haru입니다.\n2) 개인 비서 앱입니다.\n3) 서버와 웹으로 되어 있습니다."
+        server = FakeServer([{"action": "done", "summary": summary}])
+        self.assertEqual(self.run_task(server), summary)
+        self.assertEqual(server.of("summary")[0]["text"], summary)
+        self.assertEqual(server.of("summary")[0]["text"].count("\n"), 2)
+
     def test_changed_files_are_listed_in_the_summary_event(self):
         server = FakeServer([{"action": "command", "command": "touch new.txt"}, {"action": "done", "summary": "ok"}], mode="auto_edit")
         self.run_task(server, mode="auto_edit")

@@ -291,7 +291,7 @@ def run_task(task):
     except Exception:
         baseline = ""
 
-    history, blocked, skipped_list = [], {}, []
+    history, blocked, skipped_list, answers = [], {}, [], []
     checkpoint = task.get("checkpoint") or {}
     if checkpoint.get("command"):  # taken over from a worker that was lost: tell the model what it did last
         history.append({"kind": "command", "label": "이전 일꾼이 실행한 마지막 명령", "command": checkpoint["command"],
@@ -314,10 +314,18 @@ def run_task(task):
                 break
             action_id = secrets.token_hex(8)
             if kind == "answer":
-                text = str(resp.get("text") or "")
+                text = str(resp.get("text") or "").strip()
+                if not text:
+                    history.append({"kind": "answer", "text": ""})  # an empty answer is not shown; it still counts as a step
+                    continue
+                if answers:
+                    # a second answer (the same again, or a new one): the last answer ends the task, no new row is shown
+                    summary = text
+                    break
                 publish(task["id"], "action", {"id": action_id, "label": "답변 정리", "command": "(모델이 글로 답함)", "status": "running", "outward": False, "model": resp.get("model")})
                 publish(task["id"], "action", {"id": action_id, "label": "답변 정리", "command": "(모델이 글로 답함)", "status": "done", "outward": False})
                 publish(task["id"], "output", {"id": action_id, "command": "(모델이 글로 답함)", "text": text, "is_diff": False})
+                answers.append(text)
                 history.append({"kind": "answer", "text": text})
                 continue
             if kind != "command" or not resp.get("command"):

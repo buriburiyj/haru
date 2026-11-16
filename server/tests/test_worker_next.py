@@ -261,6 +261,42 @@ class WorkerNextTest(unittest.TestCase):
         self.assertNotIn("abcdefghij", masked)
         self.assertEqual(masked.count("***"), 4)
 
+    # ---- one answer at most, no invention, line breaks ----
+    def test_after_an_answer_the_prompt_demands_done_and_a_second_answer_becomes_the_summary(self):
+        task = make_task()
+        answered = [{"kind": "command", "command": "head -n 3 SPEC.md", "output": "첫째\n둘째\n셋째"}, {"kind": "answer", "text": "세 줄 요약입니다."}]
+        self.replies = ['{"action":"answer","text":"또 다른 답변\\n두 번째 줄"}']
+        d = self.post(task, history=answered).json()
+        self.assertIn("이미 답했다", self.prompts[0])
+        self.assertIn("reply with action \"done\" only", self.prompts[0])
+        self.assertEqual(d["action"], "done")  # a second answer ends the task with the last answer
+        self.assertEqual(d["summary"], "또 다른 답변\n두 번째 줄")
+        # a first answer is still allowed, and an empty earlier answer does not count as an answer
+        self.replies = ['{"action":"answer","text":"첫 답변"}']
+        self.assertEqual(self.post(task, history=[{"kind": "answer", "text": ""}]).json()["action"], "answer")
+        self.assertNotIn("이미 답했다", self.prompts[-1])
+
+    def test_the_prompt_says_to_write_only_what_the_outputs_show(self):
+        task = make_task()
+        self.replies = ['{"action":"done","summary":"ok"}']
+        self.post(task, history=[])
+        self.assertIn("ONLY what appears in the real command outputs", self.prompts[0])
+        self.assertIn("실제 명령 출력에 있는 내용만 쓰고, 없는 건 쓰지 마라", self.prompts[0])
+        self.assertIn("line breaks", self.prompts[0])
+
+    def test_multi_line_summary_keeps_its_line_breaks(self):
+        task = make_task()
+        # escaped line breaks inside the JSON string, a raw line break inside the string, and the two characters backslash+n
+        for reply in ('{"action":"done","summary":"1) 첫째\\n2) 둘째\\n3) 셋째"}',
+                      '{"action":"done","summary":"1) 첫째\n2) 둘째\n3) 셋째"}',
+                      '{"action":"done","summary":"1) 첫째\\\\n2) 둘째\\\\n3) 셋째"}'):
+            self.replies = [reply]
+            d = self.post(task, history=[]).json()
+            self.assertEqual(d["summary"], "1) 첫째\n2) 둘째\n3) 셋째", reply)
+        self.replies = ['{"action":"answer","text":"가\\n나"}']
+        self.assertEqual(self.post(task, history=[]).json()["text"], "가\n나")
+        self.assertEqual(agent_loop.fix_newlines("C:\\new\\file"), "C:\\new\\file")  # a Windows path is left alone
+
     def test_extract_json_and_clip_helpers(self):
         self.assertEqual(agent_loop.extract_json('앞 {"a": {"b": 1}} 뒤'), {"a": {"b": 1}})
         self.assertIsNone(agent_loop.extract_json("no braces"))

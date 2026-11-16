@@ -127,7 +127,9 @@ function SummaryCard({ s }: { s: WorkSummary }) {
       <Section title="한 일" empty={s.did.length === 0}>
         <ul className="list-disc space-y-0.5 pl-5 text-sm text-fg-2">
           {s.did.map((t, i) => (
-            <li key={i}>{t}</li>
+            <li key={i} className="whitespace-pre-line">
+              {t}
+            </li>
           ))}
         </ul>
       </Section>
