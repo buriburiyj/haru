@@ -246,6 +246,89 @@ class MomentTest(unittest.TestCase):
         self.assertLess(time.monotonic() - started, 1.5)
         self.assertEqual(r.json(), {"speak": "어서 오세요."})
 
+    # --- speech and material rules
+    def test_fahrenheit_becomes_whole_celsius_in_the_material_and_in_the_answer(self):
+        self.weather = [{"title": "Seoul", "url": "", "snippet": "Now 50°F, high 59 °F, low 41℉ (화씨 32도), 체감 12.6도, 10.4℃"}]
+        self.replies = ["지금 50°F라 쌀쌀해요."]
+        text = self.say("wake")
+        body = self.prompts[0][1]["content"]
+        for needle in ("10도", "15도", "5도", "0도", "13도"):
+            self.assertIn(needle, body)
+        for bad in ("°F", "℉", "화씨", "59", "12.6"):
+            self.assertNotIn(bad, body)
+        self.assertEqual(text, "지금 10도라 쌀쌀해요.")  # a model that still says Fahrenheit is converted too
+        self.assertEqual(moment.celsius("68°F, 21.5도, 3℃"), "20도, 22도, 3도")
+
+    def test_cold_weather_gets_a_coat_hint_and_rain_an_umbrella_hint(self):
+        self.weather = [{"title": "서울", "url": "", "snippet": "최저 3도, 최고 9도, 오후에 비가 올 예정"}]
+        self.say("wake")
+        body = self.prompts[0][1]["content"]
+        self.assertIn("기온 3도라 추워요: 겉옷", body)
+        self.assertIn("비 예보: 우산", body)
+        self.assertIn("행동", self.prompts[0][0]["content"])
+        self.weather = [{"title": "서울", "url": "", "snippet": "맑음 12도"}]
+        self.say("leave", at(19, 9))
+        self.assertNotIn("행동 힌트", self.prompts[-1][1]["content"])
+        self.assertEqual(moment.weather_hint(["5도 맑음"]).count("겉옷"), 1)  # 5 degrees counts as cold
+        self.assertEqual(moment.weather_hint(["6도 맑음"]), "")
+
+    def test_rules_are_in_the_prompt_and_the_date_is_not_given(self):
+        self.say("wake", at(19, 8))
+        system, user = self.prompts[0][0]["content"], self.prompts[0][1]["content"]
+        for rule in ("섭씨", "언급하지 마라", "날짜와 요일", "가장 먼저", "지시"):
+            self.assertIn(rule, system)
+        self.assertNotIn("2026", user)
+        self.assertNotIn("19일", user)
+
+    def test_sentences_about_missing_material_dates_and_weekdays_are_removed(self):
+        self.replies = ["날씨는 맑고 12도예요. 오늘 일정 정보는 제공되지 않았어요. 할 일이 없어요. 오늘은 목요일이에요. 11월 19일이에요. 우산은 필요 없어요."]
+        self.assertEqual(self.say("wake"), "날씨는 맑고 12도예요. 우산은 필요 없어요.")
+
+    def test_an_answer_that_is_only_forbidden_sentences_moves_on_to_the_next_model(self):
+        self.replies = ["재료가 없어서 알 수 없어요.", "맑아요."]
+        self.assertEqual(self.say("wake"), "맑아요.")
+        self.assertEqual(len(self.modes), 2)
+
+    def test_the_default_text_never_mentions_missing_things(self):
+        self.replies = [RuntimeError("x")] * 3
+        self.weather = [{"title": "서울", "url": "", "snippet": "맑음 12도 2026년 11월 19일 목요일"}]
+        text = self.say("wake")
+        self.assertIn("좋은 아침이에요.", text)
+        for bad in ("2026", "11월", "목요일", "없"):
+            self.assertNotIn(bad, text)
+
+    def test_calendar_and_reminders_are_material_and_the_schedule_comes_first(self):
+        self.finished("어제 끝난 일", "done", at(18, 15))
+        self.say("wake", data={"calendar": ["10:00 팀 회의", "14:00 치과"], "reminders": ["약 먹기"]})
+        body = self.prompts[0][1]["content"]
+        self.assertTrue(body.startswith("[일정]\n10:00 팀 회의\n14:00 치과"))
+        self.assertLess(body.index("[일정]"), body.index("[미리 알림]"))
+        self.assertLess(body.index("[미리 알림]"), body.index("[서울 날씨"))
+        self.assertIn("약 먹기", body)
+
+    def test_the_schedule_alone_is_enough_to_speak_and_leads_the_default_text(self):
+        self.weather = []
+        self.replies = [RuntimeError("x")] * 3
+        text = self.say("leave", data={"calendar": ["10:00 팀 회의"]})
+        self.assertEqual(text.splitlines()[:2], ["조심히 다녀오세요.", "일정: 10:00 팀 회의"])
+
+    def test_lists_are_limited_to_ten_items_of_100_characters_and_only_strings(self):
+        data = {"calendar": [f"일정 {i} " + "가" * 200 for i in range(15)] + [5, None], "reminders": "문자열 하나"}
+        self.say("wake", data=data)
+        body = self.prompts[0][1]["content"]
+        section = body.split("[", 2)[1]
+        lines = [x for x in section.splitlines()[1:] if x]
+        self.assertEqual(len(lines), 10)
+        self.assertTrue(all(len(x) <= 100 for x in lines))
+        self.assertNotIn("문자열 하나", body)
+        self.assertEqual(moment.listed({"calendar": ["a\nb", "  ", 7]}, "calendar"), ["a b"])
+
+    def test_calendar_and_reminders_are_never_stored_or_remembered(self):
+        self.say("wake", data={"calendar": ["비밀 약속 장소"], "reminders": ["비밀 알림"]})
+        self.assertNotIn("비밀", self.stored)
+        self.assertNotIn("비밀", json.dumps({k: sorted(v) for k, v in moment._said.items()}))
+        self.assertEqual(self.post({"event": "wake", "data": {"calendar": ["x"] * 3}}).status_code, 200)
+
 
 if __name__ == "__main__":
     unittest.main()
