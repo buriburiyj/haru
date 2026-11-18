@@ -135,10 +135,28 @@ app.add_middleware(
 )
 
 
+SWEEP_INTERVAL = 30
+
+
+def _sweep_once():
+    for task_id, reason in task_queue.sweep():
+        log.warning("task %s failed by the sweeper: %s", task_id[:8], reason)
+
+
+async def _sweep_loop():
+    while True:
+        await asyncio.sleep(SWEEP_INTERVAL)
+        try:
+            _sweep_once()
+        except Exception as e:
+            log.warning("task sweep failed: %s", type(e).__name__)
+
+
 @app.on_event("startup")
 async def _start():
     await _load_remote_creds()
     asyncio.create_task(storage.retry_loop())
+    asyncio.create_task(_sweep_loop())
 
 
 @app.get("/health")
@@ -827,7 +845,7 @@ async def task_rewind(task_id: str, request: Request):
     task["controls"].append({"kind": "rewind", "action_id": action_id, "checkpoint": checkpoint})
     task_queue.add_event(task_id, "rewind_requested", {"id": action_id, "checkpoint": checkpoint})
     if task["status"] == "done":
-        task.update(status="queued", worker=None, heartbeat=0, rewind_only=True, finished_at=None)
+        task.update(status="queued", worker=None, heartbeat=0, rewind_only=True, finished_at=None, queued_at=time.time())
         task_queue.add_event(task_id, "status", {"status": "queued", "computer": task["computer"], **task_queue.timing(task)})
     return {"ok": True, "queued": True, "action_id": action_id}
 
@@ -910,6 +928,7 @@ async def worker_next(request: Request):
     body = await request.json()
     task = task_queue.TASKS.get(body.get("task_id"))
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
+    task_queue.touch_task(task)  # a long model call is also a sign of life
     trace = {"reasons": []}
 
     async def ask(messages, mode):
@@ -921,6 +940,9 @@ async def worker_next(request: Request):
 
     nvidia = [m["id"] for m in router.models() if m["provider"] == "nvidia"]
 
+    def log_call(model, seconds, result):
+        log.info("worker/next model=%s 걸린초=%.1f 결과=%s", model, seconds, result)
+
     def fail(reason, status):
         log.warning("worker next failed: reason=%s tries=[%s] model=%s reply_head=%r", reason, "; ".join(trace["reasons"]),
                     trace.get("model"), agent_loop.mask_secrets(trace.get("head", "")))
@@ -929,11 +951,15 @@ async def worker_next(request: Request):
 
     try:
         action, model, todos = await asyncio.wait_for(
-            agent_loop.next_action(ask, task, body, trace, nvidia), WORKER_MODEL_TIMEOUT)
+            agent_loop.next_action(ask, task, body, trace, nvidia, log_call), WORKER_MODEL_TIMEOUT)
     except asyncio.TimeoutError:
+        flying = trace.get("inflight")  # the call that was still running when the whole limit ran out
+        if flying:
+            log_call(flying["mode"], time.monotonic() - flying["t0"], "timeout")
         return fail("시간 초과", 503)
     if action is None:
         return fail("형식 오류", 502) if trace.get("saw_text") else fail("빈 답", 503)
+    task_queue.touch_task(task)
     return {**action, "todos": todos, "model": model}
 
 
@@ -985,12 +1011,13 @@ async def worker_events(request: Request, task_id: str):
     if not _worker_ok(request): return JSONResponse({"detail": "unauthorized"}, status_code=401)
     task = task_queue.TASKS.get(task_id)
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
+    task_queue.touch_task(task)
     permission = task["permissions"].popleft() if task["permissions"] else None
     messages = [task["messages"].popleft() for _ in range(len(task["messages"]))]
     controls = [task["controls"].popleft() for _ in range(len(task["controls"]))]
     return {"messages": messages, "permission": permission, "controls": controls,
             "mode": task["mode"], "rewind_only": task.get("rewind_only", False),
-            "stopped": task["status"] == "stopped"}
+            "stopped": task["status"] in ("stopped", "failed")}  # failed here = ended by the sweeper: the worker must stop
 
 
 @app.post("/worker/permission")
@@ -999,6 +1026,7 @@ async def worker_permission(request: Request):
     body = await request.json()
     task = task_queue.TASKS.get(body.get("task_id"))
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
+    task_queue.touch_task(task)
     command = str(body.get("command", ""))
     lowered = command.lower()
     kind = "delete" if re.search(r"\b(rm|rmdir|shred|unlink|truncate)\b|git\s+(clean|reset\s+--hard)|\bdelete\b", lowered) else "send" if re.search(r"\b(git\s+push|curl|wget|scp|rsync|sendmail|deploy|publish)\b", lowered) else "pay" if re.search(r"\b(pay|purchase|checkout|stripe|billing)\b", lowered) else "other"
@@ -1019,6 +1047,7 @@ async def worker_event(request: Request):
     body = await request.json()
     if not task_queue.publish(body.get("task_id"), body.get("event"), body.get("data", {})):
         return JSONResponse({"detail": "not found"}, status_code=404)
+    task_queue.touch_task(task_queue.TASKS[body["task_id"]])
     return {"ok": True}
 
 
@@ -1028,8 +1057,8 @@ async def worker_done(request: Request):
     body = await request.json()
     task = task_queue.TASKS.get(body.get("task_id"))
     if not task: return JSONResponse({"detail": "not found"}, status_code=404)
-    if task["status"] == "stopped":
-        return {"ok": True, "status": "stopped"}
+    if task["status"] in ("stopped", "failed"):
+        return {"ok": True, "status": task["status"]}  # already ended (stopped by the user, or failed by the sweeper)
     task.update(status="failed" if body.get("error") else "done", rewind_only=False)
     task_queue.mark_finished(task)
     todos = [{**todo, "done": not bool(body.get("error"))} for todo in task.get("todos", [])]

@@ -36,6 +36,12 @@ class Restart(Exception):
     """A rewind was applied while a step ran: start the task over from the rewound state."""
 
 
+def tlog(step, seconds=None, extra=""):
+    """One timing line for ~/worker.log: "[HH:MM:SS] step · N초 · extra". Never secrets, never command text or output."""
+    tail = f" · {seconds:.1f}초" if seconds is not None else ""
+    print(f"[{time.strftime('%H:%M:%S')}] {step}{tail}{(' · ' + extra) if extra else ''}", flush=True)
+
+
 def api(path, body=None, method="POST", timeout=30):
     data = None if body is None else json.dumps(body).encode()
     req = urllib.request.Request(BASE + path, data=data, method=method,
@@ -169,13 +175,22 @@ def clip(text, limit=OUTPUT_FOR_MODEL):
 
 def request_next(task, body):
     """POST /worker/next. A 502/503/504 or a connection error is asked again (NEXT_RETRIES times, NEXT_RETRY_WAIT s apart);
-    anything else, or running out of tries, fails the task with the reason (one log line)."""
+    anything else, or running out of tries, fails the task with the reason (one log line). Every attempt is timed."""
+    step = len(body.get("history", [])) + 1
+    tlog(f"next 요청 (단계 {step})", 0)
+    started = time.time()
     last = ""
     for attempt in range(NEXT_RETRIES + 1):
+        t0 = time.time()
+        code = "연결 오류"
         try:
-            return api("/worker/next", body, timeout=180)
+            result = api("/worker/next", body, timeout=180)
+            tlog(f"next 응답 (단계 {step})", time.time() - started, f"HTTP 200 · 재시도 {attempt}회")
+            return result
         except urllib.error.HTTPError as exc:
+            code = f"HTTP {exc.code}"
             if exc.code not in (502, 503, 504):
+                tlog(f"next 오류 (단계 {step})", time.time() - started, f"{code} · 재시도 {attempt}회")
                 raise
             try:
                 detail = exc.read().decode("utf-8", "replace")[:150]
@@ -184,10 +199,12 @@ def request_next(task, body):
             last = f"서버 응답 {exc.code} {detail}".strip()
         except (urllib.error.URLError, OSError) as exc:
             last = f"연결 오류: {exc}"
+        tlog(f"next 시도 실패 (단계 {step})", time.time() - t0, f"{code} · 재시도 {attempt}회")
         if attempt < NEXT_RETRIES:
             print(f"[{task['id'][:8]}] /worker/next {last[:160]} -> {NEXT_RETRY_WAIT}초 뒤 다시 ({attempt + 1}/{NEXT_RETRIES})", flush=True)
             time.sleep(NEXT_RETRY_WAIT)
     print(f"[{task['id'][:8]}] /worker/next 실패 ({NEXT_RETRIES}번 다시 물은 뒤): {last[:300]}", flush=True)
+    tlog(f"next 실패 (단계 {step})", time.time() - started, f"재시도 {NEXT_RETRIES}회 모두 실패")
     raise RuntimeError(f"모델이 다음 행동을 정하지 못했습니다 ({last[:120]})")
 
 
@@ -346,7 +363,9 @@ def run_task(task):
                 continue
             api("/worker/heartbeat", {"task_id": task["id"], "worker_id": WORKER_ID,
                                        "checkpoint": {"action_id": action_id, "step": n_checkpoints - 1, "command": command, "output": ""}})
+            ran = time.time()
             output, code = run_command(task, work, command)
+            tlog("명령 실행", time.time() - ran, f"종료 {code}")
             if code:
                 publish(task["id"], "error", {"id": action_id, "command": command, "reason": "command failed", "exit_code": code, "output": output})
                 print(f"[{task['id'][:8]}] 실패({code}): {command[:100]!r}", flush=True)
@@ -369,30 +388,43 @@ def run_task(task):
     return summary
 
 
+def handle_task(task):
+    """Runs one claimed task with the heartbeat thread, then reports it with /worker/done. Every phase is timed."""
+    started = time.time()
+    tlog(f"작업 받음 {task['id'][:8]}", 0)
+    stop_heartbeat = threading.Event()
+
+    def heartbeat_loop():
+        while not stop_heartbeat.wait(30):
+            try:
+                api("/worker/heartbeat", {"task_id": task["id"], "worker_id": WORKER_ID, "checkpoint": task.get("checkpoint")})
+            except Exception:
+                pass
+
+    heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
+    heartbeat_thread.start()
+    payload, outcome = None, "성공"
+    try:
+        payload = {"task_id": task["id"], "result": run_task(task)}
+    except Exception as exc:
+        payload, outcome = {"task_id": task["id"], "error": str(exc)}, "실패"
+    finally:
+        stop_heartbeat.set()
+        heartbeat_thread.join(timeout=1)
+    tlog("작업 실행 끝", time.time() - started, outcome)
+    reported = time.time()
+    api("/worker/done", payload)
+    tlog("done 보고", time.time() - reported, outcome)
+    tlog(f"작업 전체 {task['id'][:8]}", time.time() - started, outcome)
+
+
 def main():
     ROOT.mkdir(parents=True, exist_ok=True)
     while True:
         try:
             task = api("/worker/claim", {"worker_id": WORKER_ID}).get("task")
             if task:
-                stop_heartbeat = threading.Event()
-                def heartbeat_loop():
-                    while not stop_heartbeat.wait(30):
-                        try:
-                            api("/worker/heartbeat", {"task_id": task["id"], "worker_id": WORKER_ID,
-                                                       "checkpoint": task.get("checkpoint")})
-                        except Exception:
-                            pass
-                heartbeat_thread = threading.Thread(target=heartbeat_loop, daemon=True)
-                heartbeat_thread.start()
-                try:
-                    result = run_task(task)
-                    api("/worker/done", {"task_id": task["id"], "result": result})
-                except Exception as exc:
-                    api("/worker/done", {"task_id": task["id"], "error": str(exc)})
-                finally:
-                    stop_heartbeat.set()
-                    heartbeat_thread.join(timeout=1)
+                handle_task(task)
             else:
                 time.sleep(5)
         except (OSError, urllib.error.URLError) as exc:

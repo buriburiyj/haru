@@ -9,6 +9,7 @@ import json
 import os
 import re
 import shlex
+import time
 
 MAX_STEPS = 15
 HISTORY_STEPS = 12  # older steps are dropped from the prompt (the worker keeps all of them)
@@ -279,7 +280,7 @@ REMINDER = ("Your last reply could not be used. Reply with ONLY one JSON object 
             "(JSON 객체 하나로만 답해.)")
 
 
-async def next_action(ask, task, body, trace=None, nvidia_modes=()):
+async def next_action(ask, task, body, trace=None, nvidia_modes=(), log_call=None):
     """`ask(messages, mode)` -> (text, model). Returns (action | None, model, todos).
     A reply that cannot be read is asked again once in the same conversation; if that fails too, Groq is skipped and the
     NVIDIA models are asked. `trace` (a dict) collects why it failed, for the log. A command that was blocked twice and
@@ -290,12 +291,24 @@ async def next_action(ask, task, body, trace=None, nvidia_modes=()):
     base = [{"role": "user", "content": prompt}]
 
     async def attempt(label, messages, mode="easy"):
-        text, model = await ask(messages, mode)
+        t0 = time.monotonic()
+        trace["inflight"] = {"mode": mode, "t0": t0}  # stays set if the whole call is cancelled by the time limit
+        try:
+            text, model = await ask(messages, mode)
+        except Exception as e:  # a failing provider must not end the whole request: the next try may work
+            trace.pop("inflight", None)
+            trace["reasons"].append(f"{label}: 오류 {type(e).__name__}")
+            if log_call:
+                log_call(mode, time.monotonic() - t0, "error")
+            return None, {}, "", None
+        trace.pop("inflight", None)
         text = text or ""
         trace.update(model=model, head=text[:300], saw_text=trace.get("saw_text", False) or bool(text.strip()))
         clean, raw = parse_reply(text)
         if clean is None:
             trace["reasons"].append(f"{label}: " + ("빈 답" if not text.strip() else "형식 오류"))
+        if log_call:
+            log_call(model or mode, time.monotonic() - t0, "ok" if clean else "format_error")
         return clean, raw, text, model
 
     action, raw, text, model = await attempt("1차", base)

@@ -11,6 +11,8 @@ EVENTS = {}
 LOCK = asyncio.Lock()
 HEARTBEAT_TIMEOUT = 120
 PERMISSION_MODES = {"always_ask", "auto_edit", "plan", "auto", "skip", "allow_all"}
+STALE_RUNNING = 300  # a running task with no sign of its worker for 5 minutes is failed ("일꾼 응답 없음")
+STALE_QUEUED = 600  # a task nobody took for 10 minutes is failed ("일할 컴퓨터가 받지 않음")
 WORKERS = {}  # worker_id -> {"seen": epoch of the last claim poll or heartbeat, "computer": ...}
 WORKER_ONLINE_WINDOW = 60  # idle workers poll /worker/claim every 10 s; running ones send a heartbeat every 30 s
 
@@ -40,6 +42,37 @@ def timing(task, now=None):
     end = task.get("finished_at") or now
     return {"created_at": task["created"], "started_at": task.get("started_at"),
             "finished_at": task.get("finished_at"), "now": now, "elapsed": max(0, int(end - begin))}
+
+
+def touch_task(task, now=None):
+    """The worker showed a sign of life for this task (event, poll, permission request, model call)."""
+    task["worker_seen"] = now or time.time()
+
+
+def fail_task(task, reason):
+    """Ends a task nobody is working on: status failed, a `failed` event with the reason (the screens show it)."""
+    task.update(status="failed", rewind_only=False, pending_permission=None)
+    mark_finished(task)
+    add_event(task["id"], "status", {"status": "failed", "computer": task["computer"], **timing(task)})
+    add_event(task["id"], "failed", {"result": "", "error": reason, "finished_at": task["finished_at"]})
+
+
+def sweep(now=None):
+    """Fails stuck tasks: running with no heartbeat or worker event for STALE_RUNNING seconds, or queued for more
+    than STALE_QUEUED seconds. Returns [(task_id, reason)]. Safe to call again and again."""
+    now = now or time.time()
+    changed = []
+    for task in list(TASKS.values()):
+        if task["status"] == "running":
+            last = max(task.get("heartbeat") or 0, task.get("worker_seen") or 0)
+            if now - last > STALE_RUNNING:
+                fail_task(task, "일꾼 응답 없음")
+                changed.append((task["id"], "일꾼 응답 없음"))
+        elif task["status"] == "queued":
+            if now - (task.get("queued_at") or task["created"]) > STALE_QUEUED:
+                fail_task(task, "일할 컴퓨터가 받지 않음")
+                changed.append((task["id"], "일할 컴퓨터가 받지 않음"))
+    return changed
 
 
 def mark_finished(task):
@@ -86,7 +119,8 @@ async def create(content, mode, conversation_id):
                           "todos": [{"id": "t1", "text": content, "done": False}],
                           "rewind_only": False,
                           "steps": [], "pending_permission": None, "resume_after": 0,
-                          "computer": None, "started_at": None, "finished_at": None, "action_id": None}
+                          "computer": None, "started_at": None, "finished_at": None, "action_id": None,
+                          "queued_at": time.time(), "worker_seen": 0}
         EVENTS[task_id] = []
         add_event(task_id, "task", {"id": task_id, "content": content, "mode": mode,
                                     "conversation_id": conversation_id, "chatId": conversation_id,
@@ -104,7 +138,7 @@ async def claim(worker_id):
         for task in TASKS.values():
             stale = task["status"] == "running" and now - task["heartbeat"] > HEARTBEAT_TIMEOUT
             if task["status"] == "queued" or stale:
-                task.update(status="running", worker=worker_id, heartbeat=now)
+                task.update(status="running", worker=worker_id, heartbeat=now, worker_seen=now)
                 task["computer"] = computer_of(worker_id)
                 task["started_at"] = task["started_at"] or now
                 task["finished_at"] = None  # running again (first run, retry after a lost worker, or a rewind)
@@ -124,6 +158,7 @@ async def heartbeat(task_id, worker_id, checkpoint=None):
         if not task or task["worker"] != worker_id or task["status"] != "running":
             return False
         task["heartbeat"] = time.time()
+        task["worker_seen"] = task["heartbeat"]
         touch_worker(worker_id, task["heartbeat"])
         if checkpoint is not None:
             task["checkpoint"] = checkpoint
