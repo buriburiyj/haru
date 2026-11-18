@@ -18,6 +18,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
 import agent_loop
+import briefing
 import eye
 import artifacts
 import codex
@@ -167,6 +168,7 @@ async def _start():
     await _load_remote_creds()
     asyncio.create_task(storage.retry_loop())
     asyncio.create_task(_sweep_loop())
+    asyncio.create_task(briefing.loop())
 
 
 @app.get("/health")

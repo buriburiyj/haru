@@ -73,6 +73,11 @@ async def handle(body, send=None, **deps):
     if text.startswith("/start"):
         await send("sendMessage", {"chat_id": chat, "text": "하루예요. 궁금한 걸 보내 주세요."})
         return True
+    if text.split()[0].split("@")[0] == "/brief":  # test: send the morning briefing now
+        import briefing
+        if not await briefing.deliver(send):
+            await send("sendMessage", {"chat_id": chat, "text": "브리핑을 보내지 못했어요."})
+        return True
     await send("sendChatAction", {"chat_id": chat, "action": "typing"})
     try:
         reply = await answer(text, **deps)
