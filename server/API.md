@@ -105,7 +105,7 @@ Entry: `{id, topic, content, created, updated}` (topic max 60 chars, content max
 - Automatic suggestions: after an answer, if the user's message talks about themself (name, job, diet, tools, habits, preferences), a short Groq call decides whether to remember it. A new topic is added, an existing topic (same name, any case) is updated, and the notice `기억 업데이트됨` is sent before `done`. Passwords, keys, long numbers, health/payment details and other people's data are never saved. Never runs in temporary chats and never together with an explicit `기억해줘`.
 
 ## Environment variables (names only)
-Required: `GROQ_API_KEY`, `NVIDIA_API_KEY`, `GITHUB_TOKEN`, `SESSION_SECRET`, `SETUP_TOKEN`.
+Required: `GROQ_API_KEY`, `NVIDIA_API_KEY`, `GITHUB_TOKEN`, `SESSION_SECRET`, `SETUP_TOKEN`; for `/eye`: `EYE_TOKEN`.
 Optional (defaults): `GROQ_MODEL` (openai/gpt-oss-20b), `GITHUB_OWNER` (buriburiyj), `GITHUB_REPO` (jun-files), `GITHUB_BRANCH` (main),
 `CRED_FILE` (/tmp/credentials.json), `QUEUE_DIR` (/tmp/queue), `CRED_REMOTE_PATH` (.agent/credentials.json),
 `UPLOAD_MAX_BYTES` (3145728), `USAGE_FILE` (/tmp/haru_usage.json), `HARU_DISABLE_LLM` (unset; set to 1 in tests to turn off the Groq helper calls for titles and memory suggestions), `CODEX_WORKFLOW` (codex-chat.yml), `CODEX_MONTHLY_MINUTES` (1500), `CODEX_TIMEOUT` (300), `CODEX_START_TIMEOUT` (90).
@@ -113,6 +113,11 @@ Optional (defaults): `GROQ_MODEL` (openai/gpt-oss-20b), `GITHUB_OWNER` (buriburi
 ## Codex setup (one time, by the owner)
 1. Copy `server/workflows/codex-chat.yml` to `jun-files/.github/workflows/codex-chat.yml` (secret `CODEX_AUTH_JSON` already exists there).
 2. The `GITHUB_TOKEN` used by the server needs **Actions: Read and write** on jun-files (done; verified live). If it is missing, Codex is skipped for 10 minutes after a failed attempt and NVIDIA answers.
+
+## Haru Eye: `POST /eye`, `GET /eye/recent?limit=20`
+Auth: `Authorization: Bearer <EYE_TOKEN>` (its own token; a login session or the PUBLIC list does not apply, an unset `EYE_TOKEN` lets nobody in).
+- `POST /eye` body `{image: base64 jpeg (a data: prefix is fine), question, source: "mac"|"phone", deep: bool}` -> `{answer, model, seconds}`. Model `nvidia/nemotron-3.5-super-vl-120b-a12b` (needs `NVIDIA_API_KEY`); answers in short Korean. `deep=false`: `chat_template_kwargs.enable_thinking=false`, `max_tokens` 600; `deep=true`: thinking on, `max_tokens` 2000. Errors: 400 bad body, 401, 413 photo over 1.5MB (decoded), 502/503/504 model problems.
+- Memory: only time, source, question, answer and a one-line scene description are kept (never the photo) in `.agent/eye/log.json` of the store repo (last 200, same commit/retry-queue path as chats, so it survives restarts). `GET /eye/recent` -> `{entries: [{time, source, question, answer, scene}]}`, newest first.
 
 ## Background tasks and worker
 - Development mode is enabled only by `HARU_DEV=1`. It adds the two Vite localhost origins and accepts `Authorization: Bearer <HARU_DEV_TOKEN>` only when the ASGI server address is loopback. With `HARU_DEV` unset, CORS and auth keep the production configuration. `scripts/dev.sh` generates the short-lived token and writes it only to the ignored `web/.env.local` as `VITE_DEV_TOKEN`.

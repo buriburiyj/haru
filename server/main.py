@@ -18,6 +18,7 @@ from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 
 import agent_loop
+import eye
 import artifacts
 import codex
 import connector
@@ -119,8 +120,17 @@ def _open_challenge_id(token: str, purpose: str):
         return None
 
 
+def _eye_token_ok(request: Request) -> bool:
+    expected = os.environ.get("EYE_TOKEN", "")
+    return bool(expected) and hmac.compare_digest(_bearer(request), expected)
+
+
 @app.middleware("http")
 async def require_session(request: Request, call_next):
+    if request.url.path in ("/eye", "/eye/recent"):  # own token (EYE_TOKEN), not the PUBLIC list and not a session
+        if request.method != "OPTIONS" and not _eye_token_ok(request):
+            return JSONResponse({"detail": "unauthorized"}, status_code=401)
+        return await call_next(request)
     if request.method == "OPTIONS" or request.url.path in PUBLIC or request.url.path == "/telegram/webhook" or request.url.path.startswith("/worker/"):
         return await call_next(request)
     if not (_session_ok(request) or _dev_token_ok(request)):
@@ -917,6 +927,27 @@ async def worker_claim(request: Request):
 
 
 WORKER_MODEL_TIMEOUT = 150  # every /worker/* answer must be finished within 180 s (the worker waits that long)
+
+
+@app.post("/eye")
+async def eye_ask(request: Request):
+    """Haru Eye: a photo and a question from the Mac or the phone (EYE_TOKEN Bearer)."""
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"detail": "invalid json"}, status_code=400)
+    try:
+        return await eye.ask(body)
+    except eye.EyeError as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status)
+
+
+@app.get("/eye/recent")
+async def eye_recent(limit: int = 20):
+    try:
+        return {"entries": await eye.recent(limit)}
+    except eye.EyeError as exc:
+        return JSONResponse({"detail": exc.detail}, status_code=exc.status)
 
 
 @app.post("/worker/next")
