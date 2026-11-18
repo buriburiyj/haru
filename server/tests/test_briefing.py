@@ -13,6 +13,7 @@ from test_main import main  # noqa: E402  (also sets the test environment)
 
 import briefing  # noqa: E402
 import eye  # noqa: E402
+import moment  # noqa: E402
 import tg_chat  # noqa: E402
 
 tasks = main.task_queue
@@ -31,7 +32,7 @@ class BriefingTest(unittest.TestCase):
     def setUp(self):
         os.environ["TELEGRAM_CHAT_ID"] = "42"
         os.environ.pop("BRIEF_HOUR", None)
-        self.orig = (eye.llm, briefing.search.search, eye.recent, briefing.storage.read_file, briefing.storage.commit_file, briefing._last_sent)
+        self.orig = (eye.llm, moment.search.search, eye.recent, briefing.storage.read_file, briefing.storage.commit_file, briefing._last_sent)
         self.sent, self.prompts, self.stored = [], [], None
         self.reply, self.weather, self.eyes = "좋은 아침이에요.\n서울은 맑고 12도예요.", [{"title": "서울 날씨", "url": "https://x.example", "snippet": "맑음 12도"}], []
         for d in (tasks.TASKS, tasks.EVENTS):
@@ -62,11 +63,11 @@ class BriefingTest(unittest.TestCase):
             return True
 
         self.send = send
-        eye.llm, briefing.search.search, eye.recent, briefing.storage.read_file, briefing.storage.commit_file = llm, fake_search, recent, read_file, commit_file
+        eye.llm, moment.search.search, eye.recent, briefing.storage.read_file, briefing.storage.commit_file = llm, fake_search, recent, read_file, commit_file
         briefing._last_sent = None
 
     def tearDown(self):
-        eye.llm, briefing.search.search, eye.recent, briefing.storage.read_file, briefing.storage.commit_file, briefing._last_sent = self.orig
+        eye.llm, moment.search.search, eye.recent, briefing.storage.read_file, briefing.storage.commit_file, briefing._last_sent = self.orig
         for d in (tasks.TASKS, tasks.EVENTS):
             d.clear()
         os.environ.pop("TELEGRAM_CHAT_ID", None)
@@ -144,7 +145,7 @@ class BriefingTest(unittest.TestCase):
         self.assertIn("창밖 맑음", body)
         self.assertNotIn("셋째", body)  # one or two eye records
         self.assertNotIn("https://", body)
-        self.assertIn("5줄 이내", self.prompts[0][0]["content"])
+        self.assertIn("2~3문장", self.prompts[0][0]["content"])
         self.assertEqual(text, "좋은 아침이에요.\n서울은 맑고 12도예요.")
 
     def test_empty_parts_are_left_out_and_with_nothing_at_all_no_model_is_asked(self):

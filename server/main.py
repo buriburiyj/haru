@@ -20,6 +20,7 @@ from webauthn.helpers.structs import PublicKeyCredentialDescriptor
 import agent_loop
 import briefing
 import eye
+import moment
 import artifacts
 import codex
 import connector
@@ -128,7 +129,7 @@ def _eye_token_ok(request: Request) -> bool:
 
 @app.middleware("http")
 async def require_session(request: Request, call_next):
-    if request.url.path in ("/eye", "/eye/recent"):  # own token (EYE_TOKEN), not the PUBLIC list and not a session
+    if request.url.path in ("/eye", "/eye/recent", "/moment"):  # own token (EYE_TOKEN), not the PUBLIC list and not a session
         if request.method != "OPTIONS" and not _eye_token_ok(request):
             return JSONResponse({"detail": "unauthorized"}, status_code=401)
         return await call_next(request)
@@ -942,6 +943,23 @@ async def eye_ask(request: Request):
         return await eye.ask(body)
     except eye.EyeError as exc:
         return JSONResponse({"detail": exc.detail}, status_code=exc.status)
+
+
+@app.post("/moment")
+async def moment_event(request: Request):
+    """A moment from the phone automation (EYE_TOKEN Bearer): {event: wake|leave|home|charge, data?} -> {speak}."""
+    try:
+        body = await request.json()
+    except ValueError:
+        return JSONResponse({"detail": "invalid json"}, status_code=400)
+    if not isinstance(body, dict) or body.get("event") not in moment.EVENTS or not isinstance(body.get("data", {}), (dict, type(None))):
+        return JSONResponse({"detail": "event must be wake, leave, home or charge; data must be an object"}, status_code=400)
+    try:  # the phone waits 5 s at most
+        speak = await asyncio.wait_for(moment.moment(body["event"], body.get("data")), moment.BUDGET + 0.3)
+    except Exception as exc:
+        log.warning("moment failed: %s", type(exc).__name__)
+        speak = moment.DEFAULTS[body["event"]]
+    return {"speak": speak}
 
 
 @app.get("/eye/recent")
