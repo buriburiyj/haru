@@ -116,7 +116,10 @@ Optional (defaults): `GROQ_MODEL` (openai/gpt-oss-20b), `GITHUB_OWNER` (buriburi
 
 ## Haru Eye: `POST /eye`, `GET /eye/recent?limit=20`
 Auth: `Authorization: Bearer <EYE_TOKEN>` (its own token; a login session or the PUBLIC list does not apply, an unset `EYE_TOKEN` lets nobody in).
-- `POST /eye` body `{image: base64 jpeg (a data: prefix is fine), question, source: "mac"|"phone", deep: bool}` -> `{answer, model, seconds}`. Model `nvidia/nemotron-3.5-super-vl-120b-a12b` (needs `NVIDIA_API_KEY`); answers in short Korean. `deep=false`: `chat_template_kwargs.enable_thinking=false`, `max_tokens` 600; `deep=true`: thinking on, `max_tokens` 2000. Errors: 400 bad body, 401, 413 photo over 1.5MB (decoded), 502/503/504 model problems.
+- `POST /eye` body `{image?: base64 jpeg (a data: prefix is fine), question, source?: "mac"|"phone" (default phone), deep?: bool, session?: string (1-64 chars)}` -> `{answer, need_photo, model, seconds}`. Answers are 2-3 plain Korean sentences for reading aloud (no markdown, lists or links). Errors: 400 bad body, 401, 413 photo over 1.5MB (decoded), 502/503/504 model problems.
+- With an `image`: model `nvidia/nemotron-3.5-super-vl-120b-a12b` (needs `NVIDIA_API_KEY`). `deep=false`: `chat_template_kwargs.enable_thinking=false`, `max_tokens` 600; `deep=true`: thinking on, `max_tokens` 2000.
+- Without an `image` (phone-only talk): the fast text model (Groq, then NVIDIA) first decides from the question: needs the photo (이거/저거/읽어 줘/뭐야…) -> `{answer:"", need_photo:true}` and nothing else (send the same question again with the photo); asks about something seen earlier (아까/전에) -> answered from the eye log; needs fresh facts -> `search.py` is used with the model's query (results go to the model without links); otherwise answered directly. If the decision cannot be read, keywords decide.
+- `session`: the last 6 turns of each session are kept in server memory (up to 100 sessions, lost on restart) and given to the model for follow-up questions, for text and photo turns alike.
 - Memory: only time, source, question, answer and a one-line scene description are kept (never the photo) in `.agent/eye/log.json` of the store repo (last 200, same commit/retry-queue path as chats, so it survives restarts). `GET /eye/recent` -> `{entries: [{time, source, question, answer, scene}]}`, newest first.
 
 ## Background tasks and worker

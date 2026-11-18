@@ -141,6 +141,138 @@ class EyeTest(unittest.TestCase):
         self.assertEqual(len(json.loads(self.stored)["entries"]), eye.MAX_LOG)
 
 
+class EyeTalkTest(unittest.TestCase):
+    """No photo: the fast model decides (photo / past / search / plain), sessions keep the last 6 turns."""
+
+    def setUp(self):
+        os.environ["EYE_TOKEN"] = TOKEN
+        self.client = TestClient(main.app)
+        self.h = {"Authorization": "Bearer " + TOKEN}
+        self.orig = (eye.llm, eye.search.search, eye.storage.read_file, eye.storage.commit_file, eye._entries, eye.call_model)
+        self.calls, self.searches, self.plan, self.answers = [], [], '{"past":false,"need_photo":false,"search":""}', []
+        self.results = []
+        self.stored = None
+        outer = self
+
+        async def llm(messages, mode="easy"):
+            outer.calls.append(messages)
+            if messages[0]["content"].startswith(eye.PLAN_SYSTEM[:10]):
+                return outer.plan, "fake-fast"
+            return (outer.answers.pop(0) if outer.answers else "네, 알겠어요."), "fake-fast"
+
+        async def fake_search(query, limit=5):
+            outer.searches.append(query)
+            return outer.results
+
+        async def read_file(path):
+            return outer.stored
+
+        async def commit_file(path, content, msg, queue_name):
+            outer.stored = content
+            return True
+
+        async def call_model(body, timeout):
+            outer.calls.append(body["messages"])
+            return "열쇠예요.\nSCENE: 책상 위 열쇠"
+
+        eye.llm, eye.search.search, eye.storage.read_file, eye.storage.commit_file, eye.call_model = llm, fake_search, read_file, commit_file, call_model
+        eye._entries = None
+        eye._sessions.clear()
+
+    def tearDown(self):
+        eye.llm, eye.search.search, eye.storage.read_file, eye.storage.commit_file, eye._entries, eye.call_model = self.orig
+        eye._sessions.clear()
+        os.environ.pop("EYE_TOKEN", None)
+
+    def post(self, question, **over):
+        return self.client.post("/eye", json={"question": question, **over}, headers=self.h)
+
+    def test_image_is_optional_and_the_response_has_all_four_fields(self):
+        self.answers = ["서울은 대한민국의 수도예요."]
+        r = self.post("서울이 어느 나라 수도야?")
+        self.assertEqual(r.status_code, 200, r.text)
+        d = r.json()
+        self.assertEqual(set(d), {"answer", "need_photo", "model", "seconds"})
+        self.assertEqual((d["answer"], d["need_photo"], d["model"]), ("서울은 대한민국의 수도예요.", False, "fake-fast"))
+
+    def test_a_question_that_needs_the_photo_gets_only_need_photo_true(self):
+        self.plan = '{"past":false,"need_photo":true,"search":""}'
+        d = self.post("이거 뭐야?", session="s1").json()
+        self.assertEqual((d["need_photo"], d["answer"]), (True, ""))
+        self.assertEqual(len(self.calls), 1)  # only the planner ran, no answer was written
+        self.assertEqual(self.searches, [])
+        self.assertEqual(eye.history_of("s1"), [])  # the question is asked again with the photo
+
+    def test_unreadable_plan_falls_back_to_keywords(self):
+        self.plan = "음... 모르겠어요"
+        self.assertTrue(self.post("저거 읽어 줘").json()["need_photo"])
+        self.answers = ["네."]
+        self.assertFalse(self.post("안녕").json()["need_photo"])
+
+    def test_search_runs_only_when_the_planner_gives_a_query_and_links_stay_out(self):
+        self.plan = '{"past":false,"need_photo":false,"search":"서울 날씨"}'
+        self.results = [{"title": "서울 날씨", "url": "https://example.com/w", "snippet": "맑고 기온은 12도"}]
+        self.answers = ["**오늘 서울은 맑고 12도예요.** [1] https://example.com/w 우산은 필요 없어요."]
+        d = self.post("오늘 서울 날씨 어때?").json()
+        self.assertEqual(self.searches, ["서울 날씨"])
+        self.assertIn("맑고 기온은 12도", self.calls[-1][0]["content"])
+        self.assertNotIn("example.com", self.calls[-1][0]["content"])  # links are not given to the model
+        self.assertEqual(d["answer"], "오늘 서울은 맑고 12도예요. 우산은 필요 없어요.")
+        self.plan = '{"past":false,"need_photo":false,"search":""}'
+        self.post("고마워")
+        self.assertEqual(self.searches, ["서울 날씨"])  # plain plan: no second search
+
+    def test_answers_are_plain_text_for_reading_aloud(self):
+        self.answers = ["# 제목\n- 첫째: **빠르게**\n- 둘째 [링크](https://x.example/a)\n`코드`"]
+        a = self.post("설명해 줘").json()["answer"]
+        for bad in ("#", "*", "`", "[", "](", "http", "\n"):
+            self.assertNotIn(bad, a)
+        self.assertIn("빠르게", a)
+        self.assertIn("링크", a)
+        self.assertIn("2~3문장", self.calls[-1][0]["content"])
+
+    def test_what_i_saw_earlier_is_answered_from_the_eye_log(self):
+        self.post("이거 뭐야?", source="phone", image=IMAGE)  # one photo turn is logged
+        self.plan = '{"past":true,"need_photo":false,"search":""}'
+        self.answers = ["아까는 책상 위 열쇠를 봤어요."]
+        d = self.post("아까 본 게 뭐였지?").json()
+        self.assertEqual((d["answer"], d["need_photo"]), ("아까는 책상 위 열쇠를 봤어요.", False))
+        system = self.calls[-1][0]["content"]
+        self.assertIn("책상 위 열쇠", system)
+        self.assertIn("이거 뭐야?", system)
+        self.assertEqual(self.searches, [])
+
+    def test_a_session_keeps_the_last_six_turns_and_uses_them(self):
+        for i in range(8):
+            self.answers = [f"답 {i}"]
+            self.post(f"질문 {i}", session="abc")
+        self.assertEqual([q for q, a in eye.history_of("abc")], [f"질문 {i}" for i in range(2, 8)])
+        self.answers = ["이어서 답해요."]
+        self.post("그럼 그다음은?", session="abc")
+        sent = self.calls[-1]
+        self.assertEqual([m["content"] for m in sent[1:-1:2]], [f"질문 {i}" for i in range(2, 8)])
+        self.assertEqual(sent[-1]["content"], "그럼 그다음은?")
+        self.assertEqual(eye.history_of("other"), [])  # sessions do not mix
+
+    def test_a_photo_turn_joins_the_session_for_follow_ups(self):
+        self.post("이거 뭐야?", image=IMAGE, session="p1")
+        self.assertEqual(eye.history_of("p1"), [("이거 뭐야?", "열쇠예요.")])
+        self.post("그게 어디 있었지?", image=IMAGE, session="p1")
+        self.assertEqual(self.calls[-1][1]["content"], "이거 뭐야?")  # the earlier turn went in as text
+
+    def test_bad_session_is_400_and_no_model_is_503(self):
+        self.assertEqual(self.post("안녕", session="x" * 65).status_code, 400)
+        self.assertEqual(self.post("안녕", session=5).status_code, 400)
+        self.answers = [" "]
+        self.assertEqual(self.post("안녕").status_code, 503)
+
+    def test_old_sessions_are_dropped_beyond_the_cap(self):
+        for i in range(eye.MAX_SESSIONS + 3):
+            eye.remember_turn(f"s{i}", "q", "a")
+        self.assertEqual(len(eye._sessions), eye.MAX_SESSIONS)
+        self.assertNotIn("s0", eye._sessions)
+
+
 def asyncio_run(coro):
     import asyncio
     return asyncio.run(coro)
